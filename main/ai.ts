@@ -10,6 +10,7 @@ type StoredConfig = {
   models?: Partial<Record<Exclude<AiProvider, 'auto'>, string>>
   keys?: Partial<Record<Exclude<AiProvider, 'auto'>, string>>
   systemPrompt?: string
+  autoReply?: boolean
 }
 
 const defaults = {
@@ -100,10 +101,10 @@ export function getAiConfig() {
   const providers = (['openrouter', 'gemini', 'openai', 'deepseek'] as const).map((id) => ({
     id, configured: Boolean(providerKey(id, config)), model: config.models?.[id] || defaults[id],
   }))
-  return { provider: config.provider || 'auto', providers, systemPrompt: config.systemPrompt || '', knowledge: listKnowledge() }
+  return { provider: config.provider || 'auto', providers, systemPrompt: config.systemPrompt || '', autoReply: config.autoReply ?? true, knowledge: listKnowledge() }
 }
 
-export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string }) {
+export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean }) {
   const config = loadConfig()
   if (input.provider) config.provider = input.provider
   if (input.id) {
@@ -111,8 +112,13 @@ export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiPr
     config.keys = { ...config.keys, ...(input.key ? { [input.id]: input.key.trim() } : {}) }
   }
   if (input.systemPrompt !== undefined) config.systemPrompt = input.systemPrompt
+  if (input.autoReply !== undefined) config.autoReply = input.autoReply
   saveConfig(config)
   return getAiConfig()
+}
+
+export function isAutoReplyEnabled() {
+  return loadConfig().autoReply ?? true
 }
 
 export async function listAiModels(provider: Exclude<AiProvider, 'auto'>) {

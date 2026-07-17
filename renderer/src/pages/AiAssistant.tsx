@@ -18,14 +18,19 @@ export default function AiAssistant() {
   const [loading, setLoading] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [knowledge, setKnowledge] = useState<any[]>([])
+  const [autoReply, setAutoReply] = useState(true)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showGuide, setShowGuide] = useState(() => !localStorage.getItem('zap-ai-guide-seen-v2'))
-  useEffect(() => { window.zap.aiGetConfig().then((data) => { setConfig(data); setSystemPrompt(data.systemPrompt || ''); setKnowledge(data.knowledge || []) }) }, [])
+  useEffect(() => { window.zap.aiGetConfig().then((data) => { setConfig(data); setSystemPrompt(data.systemPrompt || ''); setAutoReply(data.autoReply !== false); setKnowledge(data.knowledge || []) }) }, [])
   async function saveProvider(id: string, key: string, model: string) { setConfig(await window.zap.aiSaveConfig({ id, key, model })) }
   async function generate() {
     if (!prompt.trim()) return
     setLoading(true); const response = await window.zap.aiGenerate({ text: prompt, action: 'create', provider: config.provider }); setLoading(false)
     if (response.success) setResult(response.text); else alert(response.error)
+  }
+  async function saveAutoReply(value: boolean) {
+    setAutoReply(value)
+    try { setConfig(await window.zap.aiSaveConfig({ autoReply: value })) } catch { setAutoReply(!value) }
   }
   return <div>
     {showGuide && <ApiGuideModal colors={colors} close={() => { localStorage.setItem('zap-ai-guide-seen-v2', '1'); setShowGuide(false) }} />}
@@ -36,6 +41,11 @@ export default function AiAssistant() {
       <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} placeholder="Ex.: Somos uma agência premium. Nunca prometa prazo sem confirmar. Termine com uma pergunta objetiva." rows={3} style={{ width: '100%', marginTop: 9, resize: 'vertical', padding: 10, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, fontSize: 12 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}><button onClick={async () => { try { setSaveState('saving'); const saved = await window.zap.aiSaveConfig({ systemPrompt: systemPrompt.trim() }); setConfig(saved); setSystemPrompt(saved.systemPrompt || systemPrompt); setSaveState('saved'); setTimeout(() => setSaveState('idle'), 2200) } catch { setSaveState('error') } }} disabled={saveState === 'saving'} style={{ padding: '7px 10px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: saveState === 'saving' ? 'wait' : 'pointer', fontSize: 11 }}>{saveState === 'saving' ? 'Salvando...' : saveState === 'saved' ? 'Instruções salvas' : saveState === 'error' ? 'Tentar novamente' : 'Salvar instruções'}</button><button onClick={async () => { const result = await window.zap.aiImportKnowledge(); if (result.success) setKnowledge(result.files || []) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', border: `1px solid ${colors.border2}`, background: colors.surface2, color: colors.text, cursor: 'pointer', fontSize: 11 }}><FileText size={13} /> Adicionar arquivos</button><small style={{ color: saveState === 'error' ? colors.danger : saveState === 'saved' ? colors.success : colors.textMuted }}>{saveState === 'error' ? 'Não foi possível salvar localmente.' : saveState === 'saved' ? 'Persistido neste computador.' : `${knowledge.length} arquivo(s) de contexto`}</small></div>
       {knowledge.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>{knowledge.map(file => <span key={file.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 7px', background: colors.bg, border: `1px solid ${colors.border}`, color: colors.textMuted, fontSize: 10 }}>{file.name}<button onClick={async () => setKnowledge(await window.zap.aiDeleteKnowledge(file.name))} title="Remover arquivo" style={{ display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: colors.danger, cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button></span>)}</div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 13, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
+        <div style={{ flex: 1 }}><strong style={{ display: 'block', fontSize: 12 }}>Resposta automática no privado</strong><small style={{ color: colors.textMuted, fontSize: 10 }}>Responde mensagens novas com a IA. Grupos e status são sempre ignorados.</small></div>
+        <button role="switch" aria-checked={autoReply} onClick={() => void saveAutoReply(!autoReply)} title={autoReply ? 'Desativar resposta automática' : 'Ativar resposta automática'} style={{ width: 46, height: 25, border: 0, borderRadius: 20, padding: 3, background: autoReply ? colors.accent : colors.border, cursor: 'pointer', display: 'flex', justifyContent: autoReply ? 'flex-end' : 'flex-start' }}><span style={{ width: 19, height: 19, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} /></button>
+        <small style={{ width: 54, color: autoReply ? colors.success : colors.textMuted, fontWeight: 700 }}>{autoReply ? 'ATIVA' : 'PAUSADA'}</small>
+      </div>
     </section>
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1.1fr) minmax(360px, .9fr)', gap: 18 }}>
       <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 18, alignSelf: 'start' }}>

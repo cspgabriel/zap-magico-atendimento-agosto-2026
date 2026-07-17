@@ -4,6 +4,7 @@ import NodeCache from 'node-cache'
 import path from 'path'
 import { app, BrowserWindow } from 'electron'
 import fs from 'fs'
+import { generateAi, isAutoReplyEnabled } from './ai'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
 let sock: WASocket | null = null
@@ -11,6 +12,8 @@ let mainWindow: BrowserWindow | null = null
 let connecting: Promise<void> | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let shouldReconnect = true
+const autoReplyTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const autoReplyBusy = new Set<string>()
 
 type BaileysModule = typeof import('baileys')
 
@@ -26,6 +29,28 @@ function notify(channel: string, data: any) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, data)
   }
+}
+
+function queuePrivateAutoReply(phone: string) {
+  if (!isAutoReplyEnabled() || autoReplyBusy.has(phone)) return
+  const previous = autoReplyTimers.get(phone)
+  if (previous) clearTimeout(previous)
+  const timer = setTimeout(async () => {
+    autoReplyTimers.delete(phone)
+    autoReplyBusy.add(phone)
+    try {
+      const db = await getDb()
+      const history = all(db, 'SELECT * FROM inbox WHERE phone = ? ORDER BY received_at DESC LIMIT 10', [phone]).reverse()
+      const context = history.map((item: any) => `${item.from_me ? 'Atendente' : 'Cliente'}: ${item.message}`).join('\n')
+      const result = await generateAi({ text: context, action: 'reply' })
+      if (result.success && result.text) await sendMessage(phone, result.text)
+    } catch (_) {
+      // Automatic replies must never break the WhatsApp connection.
+    } finally {
+      autoReplyBusy.delete(phone)
+    }
+  }, 1800)
+  autoReplyTimers.set(phone, timer)
 }
 
 export async function connectWA(): Promise<void> {
@@ -87,8 +112,9 @@ async function openConnection(): Promise<void> {
     for (const msg of m.messages) {
       if (msg.key?.id) msgCache.set(msg.key.id, msg)
       const remoteJid = msg.key?.remoteJid || ''
-      if (remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') continue
-      const phoneJid = msg.key?.remoteJidAlt?.endsWith('@s.whatsapp.net') ? msg.key.remoteJidAlt : remoteJid
+      const alternateJid = msg.key?.remoteJidAlt || ''
+      if (remoteJid.endsWith('@g.us') || alternateJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || alternateJid === 'status@broadcast') continue
+      const phoneJid = alternateJid.endsWith('@s.whatsapp.net') ? alternateJid : remoteJid
       if (!phoneJid.endsWith('@s.whatsapp.net') && !phoneJid.endsWith('@lid')) continue
       const phone = phoneJid.endsWith('@lid')
         ? `lid:${phoneJid.replace('@lid', '')}`
@@ -100,6 +126,7 @@ async function openConnection(): Promise<void> {
         run(db, 'INSERT OR IGNORE INTO inbox (id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [msg.key.id || crypto.randomUUID(), phone, msg.pushName || '', text, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, remoteJid])
         notify('inbox:new', { phone, contact_name: msg.pushName || '', message: text, from_me: Boolean(msg.key.fromMe) })
+        if (m.type === 'notify' && !msg.key.fromMe) queuePrivateAutoReply(phone)
       } catch (_) {}
     }
   })
