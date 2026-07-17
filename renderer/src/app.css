@@ -38,8 +38,8 @@ button, input, textarea, select { font: inherit; }
 .disconnect-button { border: 1px solid; background: transparent; }
 .connecting-text { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; }
 .loader { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
-.main-content { flex: 1; overflow: auto; padding: 28px 30px; scrollbar-width: thin; scrollbar-color: rgba(0,255,136,.25) transparent; }
-.page-wrap { min-height: 100%; max-width: 1440px; margin: 0 auto; animation: enter .3s ease both; }
+.main-content { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: auto; padding: 28px 30px; scrollbar-width: thin; scrollbar-color: rgba(0,255,136,.25) transparent; }
+.page-wrap { flex: 1; min-height: 0; width: 100%; max-width: 1440px; margin: 0 auto; animation: enter .3s ease both; }
 .page-wrap h1, .page-wrap h2, .page-wrap h3 { font-family: 'Aptos Display', 'Segoe UI', sans-serif; letter-spacing: -.25px !important; color: inherit; }
 .page-wrap h2 { font-size: 24px !important; line-height: 1.15; }
 .page-wrap button { border-radius: 8px !important; transition: transform .15s, box-shadow .15s, border-color .15s, background .15s; }

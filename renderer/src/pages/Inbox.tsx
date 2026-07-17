@@ -128,7 +128,7 @@ export default function Inbox() {
     unread: allConversations.reduce((sum, c) => sum + c.unread, 0),
   }
 
-  return <div style={{ height: 'calc(100vh - 88px)', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+  return <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
       <div><h2 style={{ fontSize: 20, margin: 0 }}>Central de Atendimento</h2><p style={{ color: colors.textMuted, fontSize: 12, margin: '3px 0 0' }}>Priorize, acompanhe e responda conversas em tempo real.</p></div>
       <button onClick={async () => { await window.zap.markAllRead(); void load() }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 11px', border: `1px solid ${colors.border}`, background: colors.surface, color: colors.textMuted, cursor: 'pointer', fontSize: 11 }}><CheckCheck size={15} /> Marcar lidas</button>
