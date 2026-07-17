@@ -115,15 +115,15 @@ function AppContent() {
   }
 
   const nav = [
-    { id: 'inbox' as Page, label: 'Atendimento', icon: MessagesSquare, badge: unread },
+    { id: 'inbox' as Page, label: 'Atendimento', icon: MessagesSquare, badge: unread, group: 'Operação' },
     { id: 'contacts' as Page, label: 'Clientes', icon: UsersRound },
     { id: 'templates' as Page, label: 'Respostas prontas', icon: BookOpenText },
-    { id: 'send' as Page, label: 'Mensagem direta', icon: Send },
+    { id: 'send' as Page, label: 'Mensagem direta', icon: Send, group: 'Envios' },
     { id: 'mass' as Page, label: 'Campanhas moderadas', icon: MessageCircleMore },
-    { id: 'reports' as Page, label: 'Relatórios', icon: BarChart3 },
+    { id: 'reports' as Page, label: 'Relatórios', icon: BarChart3, group: 'Gestão' },
     { id: 'ai' as Page, label: 'Assistente IA', icon: Bot },
     { id: 'dashboard' as Page, label: 'Saúde do atendimento', icon: Activity },
-    { id: 'settings' as Page, label: 'Configurações', icon: SettingsIcon },
+    { id: 'settings' as Page, label: 'Configurações', icon: SettingsIcon, group: 'Sistema' },
   ]
 
   const pages: Record<Page, React.ReactNode> = {
@@ -188,15 +188,12 @@ function AppContent() {
         <div className="nav-list">{nav.map((n) => {
           const Icon = n.icon
           return (
-          <button
-            key={n.id}
-            onClick={() => setPage(n.id)}
-            className={`nav-item ${page === n.id ? 'active' : ''}`}
-            style={{ color: page === n.id ? colors.text : colors.textMuted }}
-          >
-            <Icon size={18} strokeWidth={1.8} /><span>{n.label}</span>
-            {!!n.badge && <b>{n.badge}</b>}
-          </button>
+          <React.Fragment key={n.id}>
+            {n.group && <div className="nav-group-label">{n.group}</div>}
+            <button onClick={() => setPage(n.id)} className={`nav-item ${page === n.id ? 'active' : ''}`} style={{ color: page === n.id ? colors.text : colors.textMuted }}>
+              <Icon size={18} strokeWidth={1.8} /><span>{n.label}</span>{!!n.badge && <b>{n.badge}</b>}
+            </button>
+          </React.Fragment>
         )})}</div>
 
         <div className="sidebar-footer" style={{ borderColor: colors.border }}>

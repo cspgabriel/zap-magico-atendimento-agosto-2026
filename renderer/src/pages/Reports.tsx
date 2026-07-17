@@ -28,6 +28,7 @@ export default function Reports() {
     a.click()
     URL.revokeObjectURL(url)
   }
+  const successRate = stats.today ? Math.round((stats.todaySent / stats.today) * 100) : 0
 
   return (
     <div>
@@ -44,22 +45,22 @@ export default function Reports() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-        <div style={{ background: colors.surface, borderRadius: 8, padding: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16 }}>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.total}</div>
           <div style={{ fontSize: 12, color: colors.textMuted }}>Total Enviadas</div>
         </div>
-        <div style={{ background: colors.surface, borderRadius: 8, padding: 16 }}>
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16 }}>
           <div style={{ fontSize: 24, fontWeight: 700, color: colors.success }}>{stats.todaySent}</div>
           <div style={{ fontSize: 12, color: colors.textMuted }}>Enviadas Hoje</div>
         </div>
-        <div style={{ background: colors.surface, borderRadius: 8, padding: 16 }}>
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16 }}>
           <div style={{ fontSize: 24, fontWeight: 700, color: colors.danger }}>{stats.todayFailed}</div>
           <div style={{ fontSize: 12, color: colors.textMuted }}>Falhas Hoje</div>
         </div>
-        <div style={{ background: colors.surface, borderRadius: 8, padding: 16 }}>
+        <div style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16 }}>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{stats.today}</div>
-          <div style={{ fontSize: 12, color: colors.textMuted }}>Total Hoje</div>
+          <div style={{ fontSize: 12, color: colors.textMuted }}>Total Hoje · {successRate}% sucesso</div>
         </div>
       </div>
 

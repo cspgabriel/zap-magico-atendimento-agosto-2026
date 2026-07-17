@@ -45,25 +45,25 @@ const dark: ThemeColors = {
 }
 
 const light: ThemeColors = {
-  bg: '#f5f6fa',
+  bg: '#f3f6f7',
   sidebar: '#ffffff',
   surface: '#ffffff',
-  surface2: '#f1f3f7',
-  border: 'rgba(0,0,0,0.08)',
-  border2: 'rgba(0,204,122,0.25)',
-  text: '#1a1a2e',
-  textMuted: '#6b7280',
-  textDim: '#9298a5',
-  accent: '#00cc7a',
-  accent2: '#0099ff',
+  surface2: '#edf3f3',
+  border: '#dce6e7',
+  border2: 'rgba(16,185,129,0.34)',
+  text: '#102a2b',
+  textMuted: '#607274',
+  textDim: '#8b9a9c',
+  accent: '#10b981',
+  accent2: '#0f766e',
   warning: '#d97706',
   warningBg: '#fef3c7',
   danger: '#dc2626',
-  success: '#16a34a',
-  successBg: '#dcfce7',
+  success: '#138a63',
+  successBg: '#dff7ec',
   errorBg: '#fecaca',
   titlebar: '#ffffff',
-  titlebarBorder: 'rgba(0,0,0,0.08)',
+  titlebarBorder: '#dce6e7',
 }
 
 interface ThemeContextType {
