@@ -1,0 +1,59 @@
+{
+  "name": "zap-magico-wpp-web-qr",
+  "version": "1.2.0",
+  "description": "Zap Mágico WPP Web QR - Central de atendimento WhatsApp via QR",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "electron-builder --win"
+  },
+  "dependencies": {
+    "baileys": "^7.0.0-rc13",
+    "dayjs": "^1.11.13",
+    "lucide-react": "^0.468.0",
+    "node-cache": "^5.1.2",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.4",
+    "sql.js": "^1.11.0",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-vite": "^2.3.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  },
+  "repository": "zap-magico-br",
+  "build": {
+    "publish": null,
+    "appId": "br.zapmagico.wppwebqr",
+    "productName": "Zap Mágico WPP Web QR",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "dist/**/*",
+      "resources/**/*"
+    ]
+  }
+}

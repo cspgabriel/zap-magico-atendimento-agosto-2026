@@ -1,0 +1,109 @@
+import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Bot, CheckCircle2, ExternalLink, HelpCircle, KeyRound, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { useTheme } from '../theme'
+
+const providers: Record<string, { label: string; keyUrl: string; docsUrl: string; help: string }> = {
+  openrouter: { label: 'OpenRouter', keyUrl: 'https://openrouter.ai/settings/keys', docsUrl: 'https://openrouter.ai/docs/quickstart', help: 'Crie uma conta, abra Keys e gere uma nova chave.' },
+  gemini: { label: 'Google Gemini', keyUrl: 'https://aistudio.google.com/app/apikey', docsUrl: 'https://ai.google.dev/gemini-api/docs/api-key', help: 'Abra o Google AI Studio e clique em Create API key.' },
+  openai: { label: 'OpenAI', keyUrl: 'https://platform.openai.com/api-keys', docsUrl: 'https://platform.openai.com/docs/quickstart', help: 'Na plataforma OpenAI, abra API keys e crie uma secret key.' },
+  deepseek: { label: 'DeepSeek', keyUrl: 'https://platform.deepseek.com/api_keys', docsUrl: 'https://api-docs.deepseek.com/', help: 'Acesse a plataforma DeepSeek e crie uma API key.' },
+}
+
+export default function AiAssistant() {
+  const { colors } = useTheme()
+  const [config, setConfig] = useState<any>({ provider: 'auto', providers: [] })
+  const [prompt, setPrompt] = useState('')
+  const [result, setResult] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [showGuide, setShowGuide] = useState(() => !localStorage.getItem('zap-ai-guide-seen-v2'))
+  useEffect(() => { window.zap.aiGetConfig().then(setConfig) }, [])
+  async function saveProvider(id: string, key: string, model: string) { setConfig(await window.zap.aiSaveConfig({ id, key, model })) }
+  async function generate() {
+    if (!prompt.trim()) return
+    setLoading(true); const response = await window.zap.aiGenerate({ text: prompt, action: 'create', provider: config.provider }); setLoading(false)
+    if (response.success) setResult(response.text); else alert(response.error)
+  }
+  return <div>
+    {showGuide && <ApiGuideModal colors={colors} close={() => { localStorage.setItem('zap-ai-guide-seen-v2', '1'); setShowGuide(false) }} />}
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}><Bot color={colors.accent} /><h2 style={{ fontSize: 20, margin: 0 }}>Assistente IA</h2><button onClick={() => setShowGuide(true)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.textMuted, padding: '7px 10px', cursor: 'pointer', fontSize: 11 }}><HelpCircle size={15} /> Como configurar</button></div>
+    <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 0 }}>Selecione qualquer modelo disponível e crie mensagens profissionais para WhatsApp.</p>
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1.1fr) minmax(360px, .9fr)', gap: 18 }}>
+      <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 18, alignSelf: 'start' }}>
+        <label style={{ color: colors.textMuted, fontSize: 12 }}>Provedor principal</label>
+        <select value={config.provider} onChange={async e => setConfig(await window.zap.aiSaveConfig({ provider: e.target.value }))} style={{ width: '100%', padding: 10, margin: '5px 0 12px', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
+          <option value="auto">Automático com fallback</option>{config.providers.map((p: any) => <option value={p.id} key={p.id}>{providers[p.id].label} · {p.model}</option>)}
+        </select>
+        <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Ex.: avise o cliente que o orçamento está pronto e pergunte o melhor horário para conversar" rows={7} style={{ width: '100%', resize: 'vertical', padding: 12, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} />
+        <button onClick={generate} disabled={loading || !prompt.trim()} style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, padding: '10px 16px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: 'pointer' }}><Sparkles size={17} />{loading ? 'Gerando...' : 'Gerar mensagem'}</button>
+        {result && <div style={{ marginTop: 14, padding: 14, whiteSpace: 'pre-wrap', background: colors.surface2, borderRadius: 7, fontSize: 13, lineHeight: 1.6 }}>{result}</div>}
+      </section>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {config.providers.map((p: any) => <ProviderCard key={p.id} provider={p} save={saveProvider} colors={colors} />)}
+      </section>
+    </div>
+  </div>
+}
+
+function ApiGuideModal({ colors, close }: { colors: any; close: () => void }) {
+  const [active, setActive] = useState('openrouter')
+  const meta = providers[active]
+  const steps = [
+    ['Abra o provedor', `Clique em “Criar chave no ${meta.label}” e entre na sua conta.`],
+    ['Gere uma API key', 'Crie uma nova chave, dê um nome como “Zap Mágico” e copie o valor exibido.'],
+    ['Cole e salve', `Volte ao cartão ${meta.label}, cole a chave no campo API key e clique em Salvar.`],
+    ['Carregue os modelos', 'Clique no botão de atualizar ao lado do seletor e escolha o modelo desejado.'],
+    ['Faça um teste', 'No painel Assistente IA, escreva um pedido curto e clique em Gerar mensagem.'],
+  ]
+  return createPortal(<div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'grid', placeItems: 'center', background: 'rgba(5,8,12,.68)', backdropFilter: 'blur(5px)', padding: 'clamp(12px, 3vw, 24px)' }}>
+    <div style={{ width: 'min(760px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 32px)', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: colors.surface, color: colors.text, border: `1px solid ${colors.border2}`, borderRadius: 8, boxShadow: '0 28px 80px rgba(0,0,0,.3)' }}>
+      <header style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 11, padding: '18px 20px', borderBottom: `1px solid ${colors.border}` }}>
+        <div style={{ width: 38, height: 38, display: 'grid', placeItems: 'center', borderRadius: 7, background: colors.accent, color: '#07120a' }}><KeyRound size={20} /></div>
+        <div><h2 style={{ fontSize: 17, margin: 0 }}>Configurar IA no Zap Mágico</h2><p style={{ color: colors.textMuted, fontSize: 11, margin: '3px 0 0' }}>Passo a passo para conectar seu provedor com segurança.</p></div>
+        <button onClick={close} title="Fechar" style={{ marginLeft: 'auto', width: 34, height: 34, display: 'grid', placeItems: 'center', border: `1px solid ${colors.border}`, background: 'transparent', color: colors.textMuted, cursor: 'pointer' }}><X size={17} /></button>
+      </header>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 190px) minmax(0, 1fr)', minHeight: 0, overflow: 'auto', flex: 1 }}>
+        <aside style={{ padding: 14, borderRight: `1px solid ${colors.border}`, background: colors.bg }}>
+          <small style={{ color: colors.textDim, fontSize: 9, fontWeight: 700, letterSpacing: 1.2 }}>ESCOLHA O PROVEDOR</small>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 10 }}>{Object.entries(providers).map(([id, p]) => <button key={id} onClick={() => setActive(id)} style={{ textAlign: 'left', padding: '10px 11px', border: `1px solid ${active === id ? colors.border2 : 'transparent'}`, background: active === id ? colors.surface2 : 'transparent', color: active === id ? colors.text : colors.textMuted, cursor: 'pointer', fontSize: 12, fontWeight: active === id ? 700 : 500 }}>{p.label}</button>)}</div>
+          <div style={{ marginTop: 18, padding: 11, borderRadius: 7, background: colors.successBg, color: colors.success, fontSize: 10, lineHeight: 1.45 }}><ShieldCheck size={15} style={{ marginBottom: 5 }} /><br />Sua chave fica criptografada neste computador e não aparece na interface.</div>
+        </aside>
+        <main style={{ minWidth: 0, padding: '19px 22px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}><h3 style={{ fontSize: 15, margin: 0 }}>{meta.label}</h3><button onClick={() => window.zap.openExternal(meta.keyUrl)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, border: 0, background: colors.accent, color: '#07120a', padding: '8px 11px', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>Criar chave no {meta.label} <ExternalLink size={13} /></button></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{steps.map(([title, text], index) => <div key={title} style={{ display: 'grid', gridTemplateColumns: '28px 1fr', gap: 10, alignItems: 'start' }}><span style={{ width: 26, height: 26, display: 'grid', placeItems: 'center', borderRadius: '50%', background: index === 0 ? colors.accent : colors.surface2, color: index === 0 ? '#07120a' : colors.textMuted, fontSize: 11, fontWeight: 800 }}>{index + 1}</span><div><strong style={{ display: 'block', fontSize: 12 }}>{title}</strong><p style={{ color: colors.textMuted, fontSize: 11, lineHeight: 1.45, margin: '3px 0 0' }}>{text}</p></div></div>)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18, paddingTop: 14, borderTop: `1px solid ${colors.border}` }}><button onClick={() => window.zap.openExternal(meta.docsUrl)} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 0, background: 'transparent', color: colors.accent2, cursor: 'pointer', fontSize: 11 }}>Ver documentação oficial <ExternalLink size={12} /></button><button onClick={close} style={{ marginLeft: 'auto', border: `1px solid ${colors.border}`, background: colors.surface2, color: colors.text, padding: '8px 14px', fontWeight: 600, cursor: 'pointer', fontSize: 11 }}>Entendi, continuar</button></div>
+        </main>
+      </div>
+    </div>
+  </div>, document.body)
+}
+
+function ProviderCard({ provider, save, colors }: any) {
+  const meta = providers[provider.id]
+  const [key, setKey] = useState('')
+  const [model, setModel] = useState(provider.model)
+  const [models, setModels] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  async function loadModels() {
+    setLoading(true)
+    const response = await window.zap.aiListModels(provider.id)
+    setLoading(false)
+    if (response.success) setModels(response.models); else alert(response.error)
+  }
+  return <div style={{ background: colors.surface, border: `1px solid ${provider.configured ? colors.border2 : colors.border}`, borderRadius: 8, padding: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><KeyRound size={15} color={colors.accent} /><strong style={{ fontSize: 13 }}>{meta.label}</strong>{provider.configured && <><CheckCircle2 size={14} color={colors.success} style={{ marginLeft: 'auto' }} /><small style={{ color: colors.success }}>Configurado</small></>}</div>
+    <p style={{ color: colors.textMuted, fontSize: 11, lineHeight: 1.45, margin: '7px 0' }}>{meta.help}</p>
+    <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
+      <button onClick={() => window.zap.openExternal(meta.keyUrl)} style={{ display: 'flex', alignItems: 'center', gap: 4, border: 0, background: 'transparent', color: colors.accent2, cursor: 'pointer', padding: 0, fontSize: 11 }}>Obter chave <ExternalLink size={12} /></button>
+      <button onClick={() => window.zap.openExternal(meta.docsUrl)} style={{ display: 'flex', alignItems: 'center', gap: 4, border: 0, background: 'transparent', color: colors.textMuted, cursor: 'pointer', padding: 0, fontSize: 11 }}>Documentação <ExternalLink size={12} /></button>
+    </div>
+    <div style={{ display: 'flex', gap: 6 }}>
+      <select value={model} onChange={e => setModel(e.target.value)} style={{ minWidth: 0, flex: 1, padding: 8, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
+        <option value={model}>{models.length ? `Atual: ${model}` : model}</option>{models.filter(m => m.id !== model).map(m => <option value={m.id} key={m.id}>{m.name}{m.name !== m.id ? ` · ${m.id}` : ''}</option>)}
+      </select>
+      <button onClick={loadModels} disabled={loading} title="Atualizar modelos" style={{ width: 36, display: 'grid', placeItems: 'center', border: `1px solid ${colors.border}`, background: colors.surface2, color: colors.text, cursor: 'pointer' }}><RefreshCw size={15} className={loading ? 'loader' : ''} /></button>
+    </div>
+    <small style={{ display: 'block', color: colors.textDim, marginTop: 4 }}>{models.length ? `${models.length} modelos disponíveis` : 'Clique em atualizar para carregar os modelos atuais'}</small>
+    <div style={{ display: 'flex', gap: 6, marginTop: 7 }}><input type="password" value={key} onChange={e => setKey(e.target.value)} placeholder={provider.configured ? 'Chave já configurada' : 'Cole a API key'} style={{ minWidth: 0, flex: 1, padding: 8, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} /><button onClick={() => save(provider.id, key, model)} style={{ border: 0, padding: '0 11px', background: colors.accent, color: '#07120a', fontWeight: 700, cursor: 'pointer' }}>Salvar</button></div>
+  </div>
+}

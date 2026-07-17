@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap');
+
+:root { font-family: 'Inter', sans-serif; }
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button, input, textarea, select { font: inherit; }
+.app-shell { display: flex; flex-direction: column; height: 100vh; position: relative; }
+.app-shell::before { content: ''; position: fixed; inset: 34px 0 0 280px; pointer-events: none; background: radial-gradient(circle at 82% 5%, rgba(0,212,255,.055), transparent 28%), radial-gradient(circle at 5% 92%, rgba(0,255,136,.045), transparent 24%); }
+.app-frame { display: flex; flex: 1; overflow: hidden; position: relative; }
+.sidebar { width: 280px; min-height: 0; padding: 18px 14px 14px; display: flex; flex-direction: column; border-right: 1px solid; flex-shrink: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(0,255,136,.28) transparent; }
+.brand-block { display: flex; align-items: center; gap: 12px; padding: 2px 8px 18px; border-bottom: 1px solid; }
+.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; color: #050508; border-radius: 8px; background: linear-gradient(135deg,#00ff88,#00d4ff); box-shadow: 0 8px 26px rgba(0,255,136,.15); }
+.brand-copy h1 { font-family: 'Sora', sans-serif; font-size: 18px; letter-spacing: 0; line-height: 1.1; margin: 0 0 4px; background: linear-gradient(135deg,#00ff88,#00d4ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.brand-copy span { color: #717180; font-size: 9px; letter-spacing: 1.8px; font-weight: 700; }
+.connection-pill { display: flex; align-items: center; gap: 11px; margin: 16px 2px 12px; padding: 11px 12px; border: 1px solid; border-radius: 8px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.connection-pill div, .phone-card div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.connection-pill small, .phone-card small { color: #6e6e7e; font-size: 8px; letter-spacing: 1.1px; font-weight: 700; }
+.connection-pill strong, .phone-card strong { font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-label { color: #5e5e6d; font-size: 9px; letter-spacing: 1.4px; font-weight: 700; padding: 13px 12px 8px; }
+.nav-list { display: flex; flex-direction: column; gap: 3px; }
+.nav-item { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border: 1px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; text-align: left; transition: .16s ease; }
+.nav-item span { flex: 1; font-size: 13px; }
+.nav-item b { min-width: 20px; padding: 2px 6px; border-radius: 10px; background: #00ff88; color: #08080c; font-size: 10px; text-align: center; }
+.nav-item:hover { color: #fff !important; background: rgba(255,255,255,.045); }
+.nav-item.active { background: linear-gradient(90deg,rgba(0,255,136,.13),rgba(0,212,255,.045)); border-color: rgba(0,255,136,.16); box-shadow: inset 2px 0 #00ff88; }
+.nav-item.active svg { color: #00ff88; }
+.qr-panel { margin: 4px 2px 8px; padding: 12px; text-align: center; border: 1px solid; border-radius: 8px; background: rgba(255,255,255,.025); }
+.qr-label { display: flex; align-items: center; justify-content: center; gap: 6px; color: #f5b342; font-size: 10px; font-weight: 700; margin-bottom: 9px; }
+.qr-frame { padding: 7px; background: #fff; border-radius: 6px; width: fit-content; margin: auto; box-shadow: 0 0 24px rgba(0,255,136,.12); }
+.qr-frame img { display: block; width: clamp(124px, 21vh, 174px); height: clamp(124px, 21vh, 174px); }
+.qr-panel p { color: #9292a0; font-size: 9px; margin: 8px 0 3px; }
+.qr-panel small { color: #00ff88; font-size: 9px; }
+.phone-card { display: flex; align-items: center; gap: 10px; margin: 3px 2px 8px; padding: 10px 12px; border: 1px solid; border-radius: 8px; }
+.sidebar-footer { margin-top: auto; padding: 14px 2px 0; border-top: 1px solid; }
+.connect-button, .disconnect-button { width: 100%; min-height: 43px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 700; }
+.connect-button { border: 0; background: linear-gradient(135deg,#00ff88,#00cc6a); color: #060609; box-shadow: 0 9px 24px rgba(0,255,136,.14); }
+.connect-button:hover { transform: translateY(-1px); box-shadow: 0 11px 30px rgba(0,255,136,.22); }
+.disconnect-button { border: 1px solid; background: transparent; }
+.connecting-text { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 11px; }
+.loader { width: 13px; height: 13px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+.main-content { flex: 1; overflow: auto; padding: 30px 34px; scrollbar-width: thin; scrollbar-color: rgba(0,255,136,.25) transparent; }
+.page-wrap { min-height: 100%; max-width: 1440px; margin: 0 auto; animation: enter .3s ease both; }
+.page-wrap h1, .page-wrap h2, .page-wrap h3 { font-family: 'Sora', sans-serif; letter-spacing: 0 !important; }
+.page-wrap button { border-radius: 7px !important; transition: transform .15s, box-shadow .15s, border-color .15s; }
+.page-wrap button:hover { transform: translateY(-1px); }
+.page-wrap input, .page-wrap textarea, .page-wrap select { border-radius: 7px !important; outline: none; }
+.page-wrap input:focus, .page-wrap textarea:focus, .page-wrap select:focus { border-color: #00ff88 !important; box-shadow: 0 0 0 3px rgba(0,255,136,.08); }
+.app-shell.dark { color-scheme: dark; }
+.app-shell.light { color-scheme: light; }
+.app-shell.light::before { background: radial-gradient(circle at 82% 5%, rgba(0,153,255,.06), transparent 28%), radial-gradient(circle at 5% 92%, rgba(0,204,122,.055), transparent 24%); }
+.app-shell.light .brand-copy span, .app-shell.light .connection-pill small, .app-shell.light .phone-card small { color: #777d89; }
+.app-shell.light .connection-pill { box-shadow: 0 5px 20px rgba(21,30,50,.035); }
+.app-shell.light .nav-label { color: #9298a5; }
+.app-shell.light .nav-item:hover { color: #1a1a2e !important; background: rgba(0,0,0,.035); }
+.app-shell.light .nav-item.active { background: linear-gradient(90deg,rgba(0,204,122,.12),rgba(0,153,255,.04)); border-color: rgba(0,204,122,.18); box-shadow: inset 2px 0 #00cc7a; }
+.app-shell.light .nav-item.active svg { color: #00a966; }
+.app-shell.light .nav-item b { background: #00cc7a; color: #fff; }
+.app-shell.light .qr-panel { background: #f8fafb; box-shadow: 0 8px 24px rgba(21,30,50,.05); }
+.app-shell.light .qr-panel p { color: #707784; }
+.app-shell.light .qr-panel small { color: #00a966; }
+.app-shell.light .brand-mark { color: #fff; background: linear-gradient(135deg,#00cc7a,#0099ff); box-shadow: 0 8px 24px rgba(0,204,122,.14); }
+.app-shell.light .connect-button { background: linear-gradient(135deg,#00cc7a,#00b96d); color: #fff; }
+.sidebar:has(.qr-panel) { padding-top: 10px; padding-bottom: 8px; }
+.sidebar:has(.qr-panel) .brand-block { padding-bottom: 9px; }
+.sidebar:has(.qr-panel) .brand-mark { width: 36px; height: 36px; }
+.sidebar:has(.qr-panel) .connection-pill { margin-top: 8px; margin-bottom: 6px; padding: 7px 10px; }
+.sidebar:has(.qr-panel) .qr-panel { padding: 7px 9px; margin-bottom: 4px; }
+.sidebar:has(.qr-panel) .qr-label { margin-bottom: 5px; }
+.sidebar:has(.qr-panel) .qr-frame { padding: 5px; }
+.sidebar:has(.qr-panel) .qr-frame img { width: 108px; height: 108px; }
+.sidebar:has(.qr-panel) .qr-panel p { margin: 4px 0 1px; }
+.sidebar:has(.qr-panel) .nav-item { min-height: 30px; }
+.sidebar:has(.qr-panel) .nav-item span { font-size: 12px; }
+.sidebar:has(.qr-panel) .nav-label { padding-top: 6px; padding-bottom: 3px; }
+.sidebar:has(.qr-panel) .sidebar-footer { margin-top: 5px; padding-top: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@media (max-width: 900px) { .sidebar { width: 235px; } .main-content { padding: 22px; } .brand-copy h1 { font-size: 16px; } }
+@media (max-height: 700px) {
+  .sidebar { padding-top: 12px; padding-bottom: 10px; }
+  .brand-block { padding-bottom: 11px; }
+  .brand-mark { width: 36px; height: 36px; }
+  .connection-pill { margin-top: 10px; margin-bottom: 8px; padding: 8px 10px; }
+  .qr-panel { padding: 8px; }
+  .qr-frame img { width: 118px; height: 118px; }
+  .qr-panel p { margin-top: 5px; }
+  .main-content { padding-top: 22px; padding-bottom: 22px; }
+}

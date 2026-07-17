@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/*
+!release/Zap Mágico BR Setup 1.0.0.exe
+!release/Zap Mágico BR Setup 1.0.0.exe.blockmap
+!release/RELATORIO-PROMESSA-X-APP-2026-06-30.md
+*.db
+wa-session/
+.vite/
