@@ -43,9 +43,14 @@ function queuePrivateAutoReply(phone: string) {
       const history = all(db, 'SELECT * FROM inbox WHERE phone = ? ORDER BY received_at DESC LIMIT 10', [phone]).reverse()
       const context = history.map((item: any) => `${item.from_me ? 'Atendente' : 'Cliente'}: ${item.message}`).join('\n')
       const result = await generateAi({ text: context, action: 'reply' })
-      if (result.success && result.text) await sendMessage(phone, result.text)
-    } catch (_) {
-      // Automatic replies must never break the WhatsApp connection.
+      if (!result.success || !result.text) {
+        notify('ai:auto-reply', { success: false, phone, error: result.error || 'Nenhum provedor de IA respondeu.' })
+        return
+      }
+      const sent = await sendMessage(phone, result.text)
+      notify('ai:auto-reply', { success: sent.success, phone, error: sent.error || '' })
+    } catch (error: any) {
+      notify('ai:auto-reply', { success: false, phone, error: error?.message || 'Falha ao gerar resposta.' })
     } finally {
       autoReplyBusy.delete(phone)
     }

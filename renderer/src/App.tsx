@@ -67,6 +67,7 @@ function AppContent() {
   const [qrCode, setQrCode] = useState('')
   const [waStatus, setWaStatus] = useState<string>('disconnected')
   const [unread, setUnread] = useState(0)
+  const [aiNotice, setAiNotice] = useState<{ success: boolean; text: string } | null>(null)
   const { colors, mode } = useTheme()
 
   const genQr = useCallback(async (raw: string) => {
@@ -95,6 +96,11 @@ function AppContent() {
     const unsub3 = window.zap.on('inbox:new', () => {
       window.zap.getUnreadCount().then(setUnread)
     })
+    const unsub4 = window.zap.on('ai:auto-reply', (data) => {
+      const text = data.success ? 'Resposta automática enviada no privado.' : `IA não respondeu: ${data.error || 'verifique a configuração.'}`
+      setAiNotice({ success: Boolean(data.success), text })
+      window.setTimeout(() => setAiNotice(null), 6000)
+    })
     const syncStatus = () => window.zap.getStatus().then((status) => {
       if (status.connected) {
         setWaConnected(true)
@@ -106,7 +112,7 @@ function AppContent() {
     syncStatus()
     const statusTimer = setTimeout(syncStatus, 2500)
     window.zap.getUnreadCount().then(setUnread)
-    return () => { clearTimeout(statusTimer); unsub1(); unsub2(); unsub3() }
+    return () => { clearTimeout(statusTimer); unsub1(); unsub2(); unsub3(); unsub4() }
   }, [])
 
   const handleConnect = () => {
@@ -220,6 +226,7 @@ function AppContent() {
           {pages[page]}
         </div>
       </main>
+      {aiNotice && <div role="status" style={{ position: 'fixed', right: 22, bottom: 22, zIndex: 1100, maxWidth: 360, padding: '12px 15px', border: `1px solid ${aiNotice.success ? colors.border2 : colors.danger}`, background: colors.surface, color: aiNotice.success ? colors.success : colors.danger, boxShadow: '0 10px 30px rgba(15,23,42,.16)', fontSize: 12, fontWeight: 700 }}>{aiNotice.text}</div>}
     </div>
     </div>
   )
