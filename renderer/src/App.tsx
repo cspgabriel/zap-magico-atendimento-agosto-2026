@@ -49,6 +49,9 @@ declare global {
       aiSaveConfig: (input: any) => Promise<any>
       aiGenerate: (input: any) => Promise<any>
       aiListModels: (provider: string) => Promise<any>
+      aiListKnowledge: () => Promise<any[]>
+      aiImportKnowledge: () => Promise<any>
+      aiDeleteKnowledge: (name: string) => Promise<any[]>
       openExternal: (url: string) => Promise<any>
       on: (channel: string, cb: (...args: any[]) => void) => () => void
     }

@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('zap', {
   aiSaveConfig: (input: any) => ipcRenderer.invoke('ai:config:save', input),
   aiGenerate: (input: any) => ipcRenderer.invoke('ai:generate', input),
   aiListModels: (provider: string) => ipcRenderer.invoke('ai:models', provider),
+  aiListKnowledge: () => ipcRenderer.invoke('ai:knowledge:list'),
+  aiImportKnowledge: () => ipcRenderer.invoke('ai:knowledge:import'),
+  aiDeleteKnowledge: (name: string) => ipcRenderer.invoke('ai:knowledge:delete', name),
   openExternal: (url: string) => ipcRenderer.invoke('external:open', url),
 
   // Caixa de Entrada

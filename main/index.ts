@@ -5,6 +5,7 @@ import { connectWA, disconnectWA, restoreWA, sendMessage, massSend, setMainWindo
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import { generateAi, getAiConfig, listAiModels, updateAiConfig } from './ai'
+import { deleteKnowledge, importKnowledge, listKnowledge } from './knowledge'
 
 let mainWindow: BrowserWindow | null = null
 let schedulerInterval: ReturnType<typeof setInterval> | null = null
@@ -241,6 +242,15 @@ function registerIPC() {
   ipcMain.handle('ai:config:save', (_, input) => updateAiConfig(input))
   ipcMain.handle('ai:generate', (_, input) => generateAi(input))
   ipcMain.handle('ai:models', (_, provider) => listAiModels(provider))
+  ipcMain.handle('ai:knowledge:list', () => listKnowledge())
+  ipcMain.handle('ai:knowledge:import', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Contexto IA', extensions: ['txt', 'md', 'csv', 'json'] }] })
+    if (result.canceled) return { success: false }
+    let files: any[] = []
+    for (const file of result.filePaths) { const imported = importKnowledge(file); if (!imported.success) return imported; files = imported.files || files }
+    return { success: true, files }
+  })
+  ipcMain.handle('ai:knowledge:delete', (_, name) => deleteKnowledge(name))
   ipcMain.handle('external:open', (_, url: string) => {
     if (!/^https:\/\//i.test(url)) throw new Error('URL externa inválida')
     return shell.openExternal(url)

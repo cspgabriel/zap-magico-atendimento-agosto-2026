@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, CheckCircle2, ExternalLink, HelpCircle, KeyRound, RefreshCw, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { Bot, CheckCircle2, ExternalLink, FileText, HelpCircle, KeyRound, RefreshCw, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
 import { useTheme } from '../theme'
 
 const providers: Record<string, { label: string; keyUrl: string; docsUrl: string; help: string }> = {
@@ -16,8 +16,10 @@ export default function AiAssistant() {
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [knowledge, setKnowledge] = useState<any[]>([])
   const [showGuide, setShowGuide] = useState(() => !localStorage.getItem('zap-ai-guide-seen-v2'))
-  useEffect(() => { window.zap.aiGetConfig().then(setConfig) }, [])
+  useEffect(() => { window.zap.aiGetConfig().then((data) => { setConfig(data); setSystemPrompt(data.systemPrompt || ''); setKnowledge(data.knowledge || []) }) }, [])
   async function saveProvider(id: string, key: string, model: string) { setConfig(await window.zap.aiSaveConfig({ id, key, model })) }
   async function generate() {
     if (!prompt.trim()) return
@@ -27,7 +29,13 @@ export default function AiAssistant() {
   return <div>
     {showGuide && <ApiGuideModal colors={colors} close={() => { localStorage.setItem('zap-ai-guide-seen-v2', '1'); setShowGuide(false) }} />}
     <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}><Bot color={colors.accent} /><h2 style={{ fontSize: 20, margin: 0 }}>Assistente IA</h2><button onClick={() => setShowGuide(true)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.textMuted, padding: '7px 10px', cursor: 'pointer', fontSize: 11 }}><HelpCircle size={15} /> Como configurar</button></div>
-    <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 0 }}>Selecione qualquer modelo disponível e crie mensagens profissionais para WhatsApp.</p>
+    <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 0 }}>Dê contexto à IA e gere respostas revisáveis para o WhatsApp.</p>
+    <section style={{ marginBottom: 16, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><FileText size={16} color={colors.accent} /><strong style={{ fontSize: 13 }}>Contexto do atendimento</strong><small style={{ marginLeft: 'auto', color: colors.textDim }}>Tudo fica neste computador</small></div>
+      <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} placeholder="Ex.: Somos uma agência premium. Nunca prometa prazo sem confirmar. Termine com uma pergunta objetiva." rows={3} style={{ width: '100%', marginTop: 9, resize: 'vertical', padding: 10, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, fontSize: 12 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}><button onClick={async () => setConfig(await window.zap.aiSaveConfig({ systemPrompt }))} style={{ padding: '7px 10px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>Salvar instruções</button><button onClick={async () => { const result = await window.zap.aiImportKnowledge(); if (result.success) setKnowledge(result.files || []) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', border: `1px solid ${colors.border2}`, background: colors.surface2, color: colors.text, cursor: 'pointer', fontSize: 11 }}><FileText size={13} /> Adicionar arquivos</button><small style={{ color: colors.textMuted }}>{knowledge.length} arquivo(s) de contexto</small></div>
+      {knowledge.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>{knowledge.map(file => <span key={file.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 7px', background: colors.bg, border: `1px solid ${colors.border}`, color: colors.textMuted, fontSize: 10 }}>{file.name}<button onClick={async () => setKnowledge(await window.zap.aiDeleteKnowledge(file.name))} title="Remover arquivo" style={{ display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: colors.danger, cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button></span>)}</div>}
+    </section>
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1.1fr) minmax(360px, .9fr)', gap: 18 }}>
       <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 18, alignSelf: 'start' }}>
         <label style={{ color: colors.textMuted, fontSize: 12 }}>Provedor principal</label>

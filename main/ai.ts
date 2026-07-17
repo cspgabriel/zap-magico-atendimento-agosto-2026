@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
 import fs from 'fs'
 import path from 'path'
+import { readKnowledgeContext, listKnowledge } from './knowledge'
 
 export type AiProvider = 'auto' | 'openrouter' | 'gemini' | 'openai' | 'deepseek'
 
@@ -8,6 +9,7 @@ type StoredConfig = {
   provider?: AiProvider
   models?: Partial<Record<Exclude<AiProvider, 'auto'>, string>>
   keys?: Partial<Record<Exclude<AiProvider, 'auto'>, string>>
+  systemPrompt?: string
 }
 
 const defaults = {
@@ -98,16 +100,17 @@ export function getAiConfig() {
   const providers = (['openrouter', 'gemini', 'openai', 'deepseek'] as const).map((id) => ({
     id, configured: Boolean(providerKey(id, config)), model: config.models?.[id] || defaults[id],
   }))
-  return { provider: config.provider || 'auto', providers }
+  return { provider: config.provider || 'auto', providers, systemPrompt: config.systemPrompt || '', knowledge: listKnowledge() }
 }
 
-export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string }) {
+export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string }) {
   const config = loadConfig()
   if (input.provider) config.provider = input.provider
   if (input.id) {
     config.models = { ...config.models, ...(input.model ? { [input.id]: input.model } : {}) }
     config.keys = { ...config.keys, ...(input.key ? { [input.id]: input.key.trim() } : {}) }
   }
+  if (input.systemPrompt !== undefined) config.systemPrompt = input.systemPrompt
   saveConfig(config)
   return getAiConfig()
 }
@@ -151,7 +154,8 @@ export async function generateAi(input: { text: string; action?: string; provide
     support: 'Reescreva em tom acolhedor, objetivo e profissional de atendimento ao cliente.',
     reply: 'Gere uma resposta de atendimento para a conversa abaixo. Seja humano, útil e objetivo. Não invente informações; quando faltar contexto, faça uma pergunta curta.',
   }
-  const prompt = `${instructions[input.action || 'create'] || instructions.create}\nUse português do Brasil. Não explique o que fez. Entregue somente a mensagem final.\n\nConteúdo:\n${input.text}`
+  const knowledge = readKnowledgeContext()
+  const prompt = `${instructions[input.action || 'create'] || instructions.create}\nUse português do Brasil. Não invente preço, prazo, política ou característica. Se a base não trouxer a resposta, sinalize a dúvida ao atendente. Não explique o que fez. Entregue somente a mensagem final.\n\nInstruções da operação:\n${config.systemPrompt || 'Atenda com clareza, cordialidade e objetividade.'}\n\nBase local de conhecimento:\n${knowledge || '(nenhum arquivo cadastrado)'}\n\nConteúdo:\n${input.text}`
   const errors: string[] = []
   for (const provider of order) {
     const key = providerKey(provider, config)
