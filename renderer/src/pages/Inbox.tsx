@@ -25,7 +25,7 @@ function dayLabel(value: string) {
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
-export default function Inbox() {
+export default function Inbox({ accountId = 'default' }: { accountId?: string }) {
   const [messages, setMessages] = useState<any[]>([])
   const [meta, setMeta] = useState<Record<string, any>>({})
   const [templates, setTemplates] = useState<any[]>([])
@@ -43,7 +43,7 @@ export default function Inbox() {
   const { colors } = useTheme()
 
   async function load() {
-    const [messageRows, metaRows] = await Promise.all([window.zap.getInbox(false), window.zap.getConversationMeta()])
+    const [messageRows, metaRows] = await Promise.all([window.zap.getInbox(false, accountId), window.zap.getConversationMeta(accountId)])
     setMessages(messageRows)
     setMeta(Object.fromEntries(metaRows.map((row: any) => [row.phone, row])))
     setSelectedPhone(current => current || messageRows[0]?.phone || '')
@@ -54,7 +54,7 @@ export default function Inbox() {
     window.zap.getTemplates().then(setTemplates)
     const unsub = window.zap.on('inbox:new', () => void load())
     return unsub
-  }, [])
+  }, [accountId])
 
   const allConversations = useMemo(() => {
     const map = new Map<string, any>()
@@ -93,7 +93,7 @@ export default function Inbox() {
 
   async function saveMeta(changes: any) {
     if (!selected) return
-    const saved = await window.zap.saveConversationMeta({ phone: selected.phone, ...changes })
+    const saved = await window.zap.saveConversationMeta({ accountId, phone: selected.phone, ...changes })
     setMeta(current => ({ ...current, [selected.phone]: { ...(current[selected.phone] || {}), ...saved } }))
   }
 
@@ -106,7 +106,7 @@ export default function Inbox() {
   async function sendReply() {
     if (!selected || !replyText.trim() || sending) return
     setSending(true)
-    const result = await window.zap.sendMessage(selected.phone, replyText.trim())
+    const result = await window.zap.sendMessage(selected.phone, replyText.trim(), accountId)
     setSending(false)
     if (result.success) { setReplyText(''); await markConversationRead() }
     else alert(result.error)

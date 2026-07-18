@@ -10,17 +10,24 @@ import Inbox from './pages/Inbox'
 import Reports from './pages/Reports'
 import Settings from './pages/Settings'
 import AiAssistant from './pages/AiAssistant'
+import Warmup from './pages/Warmup'
+import Automations from './pages/Automations'
+import Pipeline from './pages/Pipeline'
 import TitleBar from './components/TitleBar'
-import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Gauge, MessageCircleMore, MessagesSquare, PlugZap, Send, Settings as SettingsIcon, Unplug, UsersRound } from 'lucide-react'
+import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Flame, Gauge, GitBranch, MessageCircleMore, MessagesSquare, PlugZap, Send, Settings as SettingsIcon, Unplug, UsersRound, Workflow } from 'lucide-react'
 
 declare global {
   interface Window {
     electron?: { minimize: () => void; maximize: () => void; close: () => void }
     zap: {
-      connect: () => Promise<any>
-      disconnect: () => Promise<any>
-      getStatus: () => Promise<any>
-      sendMessage: (phone: string, message: string) => Promise<any>
+      connect: (accountId?: string) => Promise<any>
+      disconnect: (accountId?: string) => Promise<any>
+      getStatus: (accountId?: string) => Promise<any>
+      getAccounts: () => Promise<any[]>
+      createAccount: (name: string) => Promise<any>
+      renameAccount: (id: string, name: string) => Promise<any>
+      deleteAccount: (id: string) => Promise<any>
+      sendMessage: (phone: string, message: string, accountId?: string) => Promise<any>
       startCampaign: (campaignId: string) => Promise<any>
       getContacts: () => Promise<any[]>
       addContact: (c: any) => Promise<any>
@@ -39,12 +46,18 @@ declare global {
       getStats: () => Promise<any>
       getSettings: () => Promise<Record<string, string>>
       saveSettings: (s: Record<string, string>) => Promise<any>
-      getInbox: (unreadOnly?: boolean) => Promise<any[]>
+      getInbox: (unreadOnly?: boolean, accountId?: string) => Promise<any[]>
       markRead: (id: string) => Promise<any>
-      markAllRead: () => Promise<any>
-      getUnreadCount: () => Promise<number>
-      getConversationMeta: () => Promise<any[]>
+      markAllRead: (accountId?: string) => Promise<any>
+      getUnreadCount: (accountId?: string) => Promise<number>
+      getConversationMeta: (accountId?: string) => Promise<any[]>
       saveConversationMeta: (input: any) => Promise<any>
+      getAutomations: () => Promise<any[]>
+      saveAutomation: (rule: any) => Promise<any>
+      deleteAutomation: (id: string) => Promise<any>
+      getDeals: (accountId?: string) => Promise<any[]>
+      saveDeal: (deal: any) => Promise<any>
+      deleteDeal: (id: string) => Promise<any>
       aiGetConfig: () => Promise<any>
       aiSaveConfig: (input: any) => Promise<any>
       aiGenerate: (input: any) => Promise<any>
@@ -53,12 +66,22 @@ declare global {
       aiImportKnowledge: () => Promise<any>
       aiDeleteKnowledge: (name: string) => Promise<any[]>
       openExternal: (url: string) => Promise<any>
+      warmupPlans: () => Promise<any[]>
+      warmupList: () => Promise<any[]>
+      warmupLogs: (taskId: string, limit?: number) => Promise<any[]>
+      warmupPairs: (taskId: string) => Promise<any[]>
+      warmupCreate: (input: any) => Promise<any>
+      warmupStart: (taskId: string) => Promise<any>
+      warmupPause: (taskId: string) => Promise<any>
+      warmupStop: (taskId: string) => Promise<any>
+      warmupReset: (taskId: string) => Promise<any>
+      warmupDelete: (taskId: string) => Promise<any>
       on: (channel: string, cb: (...args: any[]) => void) => () => void
     }
   }
 }
 
-type Page = 'dashboard' | 'send' | 'mass' | 'contacts' | 'templates' | 'inbox' | 'reports' | 'ai' | 'settings'
+type Page = 'dashboard' | 'send' | 'mass' | 'contacts' | 'templates' | 'inbox' | 'reports' | 'ai' | 'warmup' | 'automations' | 'pipeline' | 'settings'
 
 function AppContent() {
   const [page, setPage] = useState<Page>(() => localStorage.getItem('zap-ai-guide-seen-v2') ? 'inbox' : 'ai')
@@ -68,6 +91,8 @@ function AppContent() {
   const [waStatus, setWaStatus] = useState<string>('disconnected')
   const [unread, setUnread] = useState(0)
   const [aiNotice, setAiNotice] = useState<{ success: boolean; text: string } | null>(null)
+  const [accounts, setAccounts] = useState<any[]>([])
+  const [accountId, setAccountId] = useState(() => localStorage.getItem('zap-active-account') || 'default')
   const { colors, mode } = useTheme()
 
   const genQr = useCallback(async (raw: string) => {
@@ -80,8 +105,9 @@ function AppContent() {
   }, [])
 
   useEffect(() => {
-    const unsub1 = window.zap.on('wa:qr', (data) => { genQr(data.qr); setWaStatus('connecting') })
+    const unsub1 = window.zap.on('wa:qr', (data) => { if ((data.accountId || 'default') === accountId) { genQr(data.qr); setWaStatus('connecting') } })
     const unsub2 = window.zap.on('wa:status', (data) => {
+      if ((data.accountId || 'default') !== accountId) return
       setWaStatus(data.status)
       if (data.status === 'connected') {
         setWaConnected(true)
@@ -93,15 +119,15 @@ function AppContent() {
         if (data.status === 'disconnected') setQrCode('')
       }
     })
-    const unsub3 = window.zap.on('inbox:new', () => {
-      window.zap.getUnreadCount().then(setUnread)
+    const unsub3 = window.zap.on('inbox:new', (data) => {
+      if ((data.accountId || 'default') === accountId) window.zap.getUnreadCount(accountId).then(setUnread)
     })
     const unsub4 = window.zap.on('ai:auto-reply', (data) => {
       const text = data.success ? 'Resposta automática enviada no privado.' : `IA não respondeu: ${data.error || 'verifique a configuração.'}`
       setAiNotice({ success: Boolean(data.success), text })
       window.setTimeout(() => setAiNotice(null), 6000)
     })
-    const syncStatus = () => window.zap.getStatus().then((status) => {
+    const syncStatus = () => window.zap.getStatus(accountId).then((status) => {
       if (status.connected) {
         setWaConnected(true)
         setWaStatus('connected')
@@ -111,23 +137,29 @@ function AppContent() {
     })
     syncStatus()
     const statusTimer = setTimeout(syncStatus, 2500)
-    window.zap.getUnreadCount().then(setUnread)
+    window.zap.getUnreadCount(accountId).then(setUnread)
+    window.zap.getAccounts().then(setAccounts)
     return () => { clearTimeout(statusTimer); unsub1(); unsub2(); unsub3(); unsub4() }
-  }, [])
+  }, [accountId])
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     setPage('dashboard')
-    if (!waConnected) window.zap.connect()
+    if (!waConnected) {
+      try { await window.zap.connect(accountId) } catch (e: any) { console.error('connect error', e) }
+    }
   }
 
   const nav = [
     { id: 'inbox' as Page, label: 'Atendimento', icon: MessagesSquare, badge: unread, group: 'Operação' },
     { id: 'contacts' as Page, label: 'Clientes', icon: UsersRound },
     { id: 'templates' as Page, label: 'Respostas prontas', icon: BookOpenText },
+    { id: 'pipeline' as Page, label: 'Pipeline CRM', icon: GitBranch },
+    { id: 'automations' as Page, label: 'Automações', icon: Workflow },
     { id: 'send' as Page, label: 'Mensagem direta', icon: Send, group: 'Envios' },
     { id: 'mass' as Page, label: 'Campanhas moderadas', icon: MessageCircleMore },
     { id: 'reports' as Page, label: 'Relatórios', icon: BarChart3, group: 'Gestão' },
     { id: 'ai' as Page, label: 'Assistente IA', icon: Bot },
+    { id: 'warmup' as Page, label: 'Aquecimento', icon: Flame },
     { id: 'dashboard' as Page, label: 'Saúde do atendimento', icon: Activity },
     { id: 'settings' as Page, label: 'Configurações', icon: SettingsIcon, group: 'Sistema' },
   ]
@@ -136,11 +168,14 @@ function AppContent() {
     dashboard: <Dashboard />,
     send: <SendMessage />,
     mass: <MassSend />,
-    inbox: <Inbox />,
+    inbox: <Inbox accountId={accountId} />,
     contacts: <Contacts />,
     templates: <Templates />,
     reports: <Reports />,
     ai: <AiAssistant />,
+    warmup: <Warmup />,
+    automations: <Automations accountId={accountId} accounts={accounts} />,
+    pipeline: <Pipeline accountId={accountId} />,
     settings: <Settings />,
   }
 
@@ -172,6 +207,12 @@ function AppContent() {
         <div className="connection-pill" style={{ borderColor: colors.border, background: colors.surface }}>
           <span className="status-dot" style={{ background: statusColors[waStatus], boxShadow: `0 0 12px ${statusColors[waStatus]}` }} />
           <div><small>CONEXÃO WHATSAPP</small><strong>{statusLabels[waStatus]}</strong></div>
+        </div>
+        <div className="account-switcher">
+          <select value={accountId} onChange={(event) => { setAccountId(event.target.value); localStorage.setItem('zap-active-account', event.target.value); setWaConnected(false); setWaStatus('disconnected') }}>
+            {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.phone ? ` · ${account.phone}` : ''}</option>)}
+          </select>
+          <button title="Adicionar conta por QR Code" onClick={async () => { const name = prompt('Nome da nova conta WhatsApp'); if (!name?.trim()) return; const result = await window.zap.createAccount(name); const next = await window.zap.getAccounts(); setAccounts(next); if (result.id) { setAccountId(result.id); localStorage.setItem('zap-active-account', result.id) } }}>+</button>
         </div>
 
         {waStatus === 'connecting' && qrCode && (
@@ -209,7 +250,7 @@ function AppContent() {
             </button>
           )}
           {waStatus === 'connected' && (
-            <button onClick={() => window.zap.disconnect()} className="disconnect-button" style={{ color: colors.danger, borderColor: colors.danger }}>
+            <button onClick={() => window.zap.disconnect(accountId)} className="disconnect-button" style={{ color: colors.danger, borderColor: colors.danger }}>
               <Unplug size={17} /> Desconectar
             </button>
           )}

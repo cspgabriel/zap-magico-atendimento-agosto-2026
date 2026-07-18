@@ -7,6 +7,24 @@ let db: SqlJsDatabase
 
 function migrate(database: SqlJsDatabase) {
   database.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_accounts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT DEFAULT '',
+      status TEXT DEFAULT 'disconnected',
+      is_default INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_session_store (
+      account_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      encrypted_payload TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, file_name)
+    )`)
+  database.run(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -88,9 +106,93 @@ function migrate(database: SqlJsDatabase) {
       notes TEXT DEFAULT '',
       updated_at TEXT DEFAULT (datetime('now'))
     )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      account_id TEXT NOT NULL DEFAULT 'default',
+      phone TEXT NOT NULL,
+      status TEXT DEFAULT 'open',
+      priority TEXT DEFAULT 'normal',
+      pinned INTEGER DEFAULT 0,
+      tags TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      assignee TEXT DEFAULT '',
+      stage TEXT DEFAULT 'novo',
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, phone)
+    )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS automation_rules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      account_id TEXT DEFAULT '*',
+      keyword TEXT DEFAULT '',
+      reply TEXT DEFAULT '',
+      add_tag TEXT DEFAULT '',
+      set_status TEXT DEFAULT '',
+      set_priority TEXT DEFAULT '',
+      enabled INTEGER DEFAULT 1,
+      executions INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS deals (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL DEFAULT 'default',
+      phone TEXT NOT NULL,
+      title TEXT NOT NULL,
+      value REAL DEFAULT 0,
+      stage TEXT DEFAULT 'novo',
+      owner TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS warmup_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      plan TEXT NOT NULL DEFAULT '14',
+      status TEXT NOT NULL DEFAULT 'idle',
+      current_day INTEGER DEFAULT 0,
+      conversations_today INTEGER DEFAULT 0,
+      target_today INTEGER DEFAULT 0,
+      started_at TEXT,
+      last_run_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      finished_at TEXT
+    )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS warmup_log (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      message TEXT,
+      topic TEXT,
+      day INTEGER,
+      hour INTEGER,
+      sent_at TEXT DEFAULT (datetime('now'))
+    )`)
+  database.run(`
+    CREATE TABLE IF NOT EXISTS warmup_pairs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      source_phone TEXT NOT NULL,
+      target_phone TEXT NOT NULL,
+      active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`)
 
   const inboxColumns = database.exec('PRAGMA table_info(inbox)')[0]?.values.map((v: any) => v[1]) || []
   if (!inboxColumns.includes('source_jid')) database.run("ALTER TABLE inbox ADD COLUMN source_jid TEXT DEFAULT ''")
+  if (!inboxColumns.includes('account_id')) database.run("ALTER TABLE inbox ADD COLUMN account_id TEXT DEFAULT 'default'")
+  const sendLogColumns = database.exec('PRAGMA table_info(send_log)')[0]?.values.map((v: any) => v[1]) || []
+  if (!sendLogColumns.includes('account_id')) database.run("ALTER TABLE send_log ADD COLUMN account_id TEXT DEFAULT 'default'")
+  database.run("INSERT OR IGNORE INTO whatsapp_accounts (id, name, is_default) VALUES ('default', 'WhatsApp principal', 1)")
+  database.run(`INSERT OR IGNORE INTO conversations (account_id, phone, status, priority, pinned, tags, notes, updated_at)
+    SELECT 'default', phone, status, priority, pinned, tags, notes, updated_at FROM inbox_conversations`)
   database.run("DELETE FROM inbox WHERE id = '3AC781DE41A6A2B571AF'")
 
   const retiredBonusTemplates = [

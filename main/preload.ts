@@ -8,13 +8,17 @@ contextBridge.exposeInMainWorld('electron', {
 
 contextBridge.exposeInMainWorld('zap', {
   // Conexão WhatsApp
-  connect: () => ipcRenderer.invoke('wa:connect'),
-  disconnect: () => ipcRenderer.invoke('wa:disconnect'),
-  getStatus: () => ipcRenderer.invoke('wa:status'),
+  connect: (accountId?: string) => ipcRenderer.invoke('wa:connect', accountId),
+  disconnect: (accountId?: string) => ipcRenderer.invoke('wa:disconnect', accountId),
+  getStatus: (accountId?: string) => ipcRenderer.invoke('wa:status', accountId),
+  getAccounts: () => ipcRenderer.invoke('accounts:list'),
+  createAccount: (name: string) => ipcRenderer.invoke('accounts:create', name),
+  renameAccount: (id: string, name: string) => ipcRenderer.invoke('accounts:rename', id, name),
+  deleteAccount: (id: string) => ipcRenderer.invoke('accounts:delete', id),
 
   // Envio
-  sendMessage: (phone: string, message: string) =>
-    ipcRenderer.invoke('send:message', phone, message),
+  sendMessage: (phone: string, message: string, accountId?: string) =>
+    ipcRenderer.invoke('send:message', phone, message, accountId),
   startCampaign: (campaignId: string) =>
     ipcRenderer.invoke('campaign:start', campaignId),
 
@@ -54,12 +58,30 @@ contextBridge.exposeInMainWorld('zap', {
   openExternal: (url: string) => ipcRenderer.invoke('external:open', url),
 
   // Caixa de Entrada
-  getInbox: (unreadOnly?: boolean) => ipcRenderer.invoke('inbox:list', unreadOnly),
+  getInbox: (unreadOnly?: boolean, accountId?: string) => ipcRenderer.invoke('inbox:list', unreadOnly, accountId),
   markRead: (id: string) => ipcRenderer.invoke('inbox:markRead', id),
-  markAllRead: () => ipcRenderer.invoke('inbox:markAllRead'),
-  getUnreadCount: () => ipcRenderer.invoke('inbox:unreadCount'),
-  getConversationMeta: () => ipcRenderer.invoke('inbox:conversationMeta'),
+  markAllRead: (accountId?: string) => ipcRenderer.invoke('inbox:markAllRead', accountId),
+  getUnreadCount: (accountId?: string) => ipcRenderer.invoke('inbox:unreadCount', accountId),
+  getConversationMeta: (accountId?: string) => ipcRenderer.invoke('inbox:conversationMeta', accountId),
   saveConversationMeta: (input: any) => ipcRenderer.invoke('inbox:saveConversationMeta', input),
+  getAutomations: () => ipcRenderer.invoke('automations:list'),
+  saveAutomation: (rule: any) => ipcRenderer.invoke('automations:save', rule),
+  deleteAutomation: (id: string) => ipcRenderer.invoke('automations:delete', id),
+  getDeals: (accountId?: string) => ipcRenderer.invoke('deals:list', accountId),
+  saveDeal: (deal: any) => ipcRenderer.invoke('deals:save', deal),
+  deleteDeal: (id: string) => ipcRenderer.invoke('deals:delete', id),
+
+  // Aquecimento de Chips
+  warmupPlans: () => ipcRenderer.invoke('warmup:plans'),
+  warmupList: () => ipcRenderer.invoke('warmup:list'),
+  warmupLogs: (taskId: string, limit?: number) => ipcRenderer.invoke('warmup:logs', taskId, limit),
+  warmupPairs: (taskId: string) => ipcRenderer.invoke('warmup:pairs', taskId),
+  warmupCreate: (input: any) => ipcRenderer.invoke('warmup:create', input),
+  warmupStart: (taskId: string) => ipcRenderer.invoke('warmup:start', taskId),
+  warmupPause: (taskId: string) => ipcRenderer.invoke('warmup:pause', taskId),
+  warmupStop: (taskId: string) => ipcRenderer.invoke('warmup:stop', taskId),
+  warmupReset: (taskId: string) => ipcRenderer.invoke('warmup:reset', taskId),
+  warmupDelete: (taskId: string) => ipcRenderer.invoke('warmup:delete', taskId),
 
   // Eventos (main -> renderer)
   on: (channel: string, cb: (...args: any[]) => void) => {

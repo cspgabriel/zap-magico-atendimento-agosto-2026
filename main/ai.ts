@@ -60,8 +60,9 @@ function saveConfig(config: StoredConfig) {
   fs.writeFileSync(configPath(), JSON.stringify(output, null, 2), 'utf8')
 }
 
-function providerKey(provider: Exclude<AiProvider, 'auto'>, config: StoredConfig) {
-  if (config.keys?.[provider]) return config.keys[provider]
+export function providerKey(provider: Exclude<AiProvider, 'auto'>, config?: StoredConfig) {
+  const cfg = config || loadConfig()
+  if (cfg.keys?.[provider]) return cfg.keys[provider]
   const hermes = readHermesEnv()
   const names = {
     openrouter: 'OPENROUTER_API_KEY', gemini: 'GEMINI_API_KEY',

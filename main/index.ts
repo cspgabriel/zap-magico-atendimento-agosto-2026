@@ -1,11 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'path'
 import { getDb, all, one, run } from '../shared/database'
-import { connectWA, disconnectWA, restoreWA, sendMessage, massSend, setMainWindow, interpolate } from './whatsapp'
+import { connectWA, disconnectWA, restoreWA, sendMessage, massSend, setMainWindow, interpolate, getConnectionStatus } from './whatsapp'
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import { generateAi, getAiConfig, listAiModels, updateAiConfig } from './ai'
 import { deleteKnowledge, importKnowledge, listKnowledge } from './knowledge'
+import { setWarmupWindow, getWarmupPlans, listWarmupTasks, getWarmupLogs, getWarmupPairs, createWarmupTask, startWarmupTask, pauseWarmupTask, stopWarmupTask, resetWarmupTask, deleteWarmupTask } from './warmup'
 
 let mainWindow: BrowserWindow | null = null
 let schedulerInterval: ReturnType<typeof setInterval> | null = null
@@ -31,6 +32,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
   setMainWindow(mainWindow)
+  setWarmupWindow(mainWindow)
 }
 
 function startScheduler() {
@@ -56,13 +58,29 @@ function registerIPC() {
     else mainWindow?.maximize()
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
-  ipcMain.handle('wa:connect', async () => { await connectWA(); return { success: true } })
-  ipcMain.handle('wa:disconnect', () => { disconnectWA(); return { success: true } })
-  ipcMain.handle('wa:status', () => {
-    const ws = require('./whatsapp')
-    return ws.getConnectionStatus()
+  ipcMain.handle('wa:connect', async (_, accountId = 'default') => { try { await connectWA(accountId); return { success: true } } catch (e: any) { return { success: false, error: e?.message || String(e) } } })
+  ipcMain.handle('wa:disconnect', (_, accountId = 'default') => { disconnectWA(accountId); return { success: true } })
+  ipcMain.handle('wa:status', (_, accountId = 'default') => getConnectionStatus(accountId))
+  ipcMain.handle('send:message', async (_, phone: string, message: string, accountId = 'default') => sendMessage(phone, message, accountId))
+  ipcMain.handle('accounts:list', async () => {
+    const db = await getDb()
+    return all(db, 'SELECT * FROM whatsapp_accounts ORDER BY is_default DESC, created_at').map((row: any) => {
+      const live = getConnectionStatus(row.id)
+      return { ...row, ...live, status: live.connected ? 'connected' : 'disconnected' }
+    })
   })
-  ipcMain.handle('send:message', async (_, phone: string, message: string) => sendMessage(phone, message))
+  ipcMain.handle('accounts:create', async (_, name: string) => {
+    const db = await getDb(); const id = uuidv4()
+    run(db, 'INSERT INTO whatsapp_accounts (id, name) VALUES (?, ?)', [id, String(name || 'Nova conta').trim()])
+    return { success: true, id }
+  })
+  ipcMain.handle('accounts:rename', async (_, id: string, name: string) => {
+    const db = await getDb(); run(db, "UPDATE whatsapp_accounts SET name = ?, updated_at = datetime('now') WHERE id = ?", [String(name).trim(), id]); return { success: true }
+  })
+  ipcMain.handle('accounts:delete', async (_, id: string) => {
+    if (id === 'default') return { success: false, error: 'A conta principal não pode ser excluída.' }
+    disconnectWA(id); const db = await getDb(); run(db, 'DELETE FROM whatsapp_accounts WHERE id = ?', [id]); return { success: true }
+  })
 
   // Contacts
   ipcMain.handle('contacts:list', async () => {
@@ -257,47 +275,81 @@ function registerIPC() {
   })
 
   // Inbox
-  ipcMain.handle('inbox:list', async (_, unreadOnly = false) => {
+  ipcMain.handle('inbox:list', async (_, unreadOnly = false, accountId = 'default') => {
     const db = await getDb()
-    if (unreadOnly) return all(db, 'SELECT * FROM inbox WHERE read = 0 ORDER BY received_at DESC')
-    return all(db, 'SELECT * FROM inbox ORDER BY received_at DESC LIMIT 200')
+    if (unreadOnly) return all(db, 'SELECT * FROM inbox WHERE account_id = ? AND read = 0 ORDER BY received_at DESC', [accountId])
+    return all(db, 'SELECT * FROM inbox WHERE account_id = ? ORDER BY received_at DESC LIMIT 500', [accountId])
   })
   ipcMain.handle('inbox:markRead', async (_, id: string) => {
     const db = await getDb()
     run(db, 'UPDATE inbox SET read = 1 WHERE id = ?', [id])
     return { success: true }
   })
-  ipcMain.handle('inbox:markAllRead', async () => {
+  ipcMain.handle('inbox:markAllRead', async (_, accountId = 'default') => {
     const db = await getDb()
-    run(db, 'UPDATE inbox SET read = 1 WHERE read = 0')
+    run(db, 'UPDATE inbox SET read = 1 WHERE account_id = ? AND read = 0', [accountId])
     return { success: true }
   })
-  ipcMain.handle('inbox:unreadCount', async () => {
+  ipcMain.handle('inbox:unreadCount', async (_, accountId = 'default') => {
     const db = await getDb()
-    const r = one(db, "SELECT COUNT(*) as c FROM inbox WHERE read = 0") as any
+    const r = one(db, "SELECT COUNT(*) as c FROM inbox WHERE account_id = ? AND read = 0", [accountId]) as any
     return r?.c || 0
   })
-  ipcMain.handle('inbox:conversationMeta', async () => {
+  ipcMain.handle('inbox:conversationMeta', async (_, accountId = 'default') => {
     const db = await getDb()
-    return all(db, 'SELECT * FROM inbox_conversations')
+    return all(db, 'SELECT * FROM conversations WHERE account_id = ?', [accountId])
   })
   ipcMain.handle('inbox:saveConversationMeta', async (_, input: any) => {
     const db = await getDb()
-    const current = one(db, 'SELECT * FROM inbox_conversations WHERE phone = ?', [input.phone]) as any
+    const accountId = input.accountId || 'default'
+    const current = one(db, 'SELECT * FROM conversations WHERE account_id = ? AND phone = ?', [accountId, input.phone]) as any
     const next = {
       status: input.status ?? current?.status ?? 'open',
       priority: input.priority ?? current?.priority ?? 'normal',
       pinned: input.pinned ?? current?.pinned ?? 0,
       tags: input.tags ?? current?.tags ?? '',
       notes: input.notes ?? current?.notes ?? '',
+      assignee: input.assignee ?? current?.assignee ?? '',
+      stage: input.stage ?? current?.stage ?? 'novo',
     }
-    run(db, `INSERT INTO inbox_conversations (phone, status, priority, pinned, tags, notes, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(phone) DO UPDATE SET status=excluded.status, priority=excluded.priority,
-      pinned=excluded.pinned, tags=excluded.tags, notes=excluded.notes, updated_at=datetime('now')`,
-      [input.phone, next.status, next.priority, next.pinned ? 1 : 0, next.tags, next.notes])
-    return { phone: input.phone, ...next }
+    run(db, `INSERT INTO conversations (account_id, phone, status, priority, pinned, tags, notes, assignee, stage, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(account_id, phone) DO UPDATE SET status=excluded.status, priority=excluded.priority,
+      pinned=excluded.pinned, tags=excluded.tags, notes=excluded.notes, assignee=excluded.assignee, stage=excluded.stage, updated_at=datetime('now')`,
+      [accountId, input.phone, next.status, next.priority, next.pinned ? 1 : 0, next.tags, next.notes, next.assignee, next.stage])
+    return { account_id: accountId, phone: input.phone, ...next }
   })
+
+  ipcMain.handle('automations:list', async () => all(await getDb(), 'SELECT * FROM automation_rules ORDER BY enabled DESC, created_at DESC'))
+  ipcMain.handle('automations:save', async (_, rule: any) => {
+    const db = await getDb(); const id = rule.id || uuidv4()
+    run(db, `INSERT INTO automation_rules (id,name,account_id,keyword,reply,add_tag,set_status,set_priority,enabled) VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name,account_id=excluded.account_id,keyword=excluded.keyword,reply=excluded.reply,add_tag=excluded.add_tag,set_status=excluded.set_status,set_priority=excluded.set_priority,enabled=excluded.enabled,updated_at=datetime('now')`,
+      [id, rule.name, rule.account_id || '*', rule.keyword || '', rule.reply || '', rule.add_tag || '', rule.set_status || '', rule.set_priority || '', rule.enabled === false ? 0 : 1])
+    return { success: true, id }
+  })
+  ipcMain.handle('automations:delete', async (_, id: string) => { const db = await getDb(); run(db, 'DELETE FROM automation_rules WHERE id = ?', [id]); return { success: true } })
+  ipcMain.handle('deals:list', async (_, accountId = 'default') => all(await getDb(), 'SELECT * FROM deals WHERE account_id = ? ORDER BY updated_at DESC', [accountId]))
+  ipcMain.handle('deals:save', async (_, deal: any) => {
+    const db = await getDb(); const id = deal.id || uuidv4()
+    run(db, `INSERT INTO deals (id,account_id,phone,title,value,stage,owner,notes) VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET phone=excluded.phone,title=excluded.title,value=excluded.value,stage=excluded.stage,owner=excluded.owner,notes=excluded.notes,updated_at=datetime('now')`,
+      [id, deal.account_id || 'default', deal.phone, deal.title, Number(deal.value || 0), deal.stage || 'novo', deal.owner || '', deal.notes || ''])
+    return { success: true, id }
+  })
+  ipcMain.handle('deals:delete', async (_, id: string) => { const db = await getDb(); run(db, 'DELETE FROM deals WHERE id = ?', [id]); return { success: true } })
+
+  // Aquecimento de Chips
+  ipcMain.handle('warmup:plans', () => getWarmupPlans())
+  ipcMain.handle('warmup:list', () => listWarmupTasks())
+  ipcMain.handle('warmup:logs', (_, taskId: string, limit?: number) => getWarmupLogs(taskId, limit))
+  ipcMain.handle('warmup:pairs', (_, taskId: string) => getWarmupPairs(taskId))
+  ipcMain.handle('warmup:create', (_, input: any) => createWarmupTask(input))
+  ipcMain.handle('warmup:start', (_, taskId: string) => startWarmupTask(taskId))
+  ipcMain.handle('warmup:pause', (_, taskId: string) => pauseWarmupTask(taskId))
+  ipcMain.handle('warmup:stop', (_, taskId: string) => stopWarmupTask(taskId))
+  ipcMain.handle('warmup:reset', (_, taskId: string) => resetWarmupTask(taskId))
+  ipcMain.handle('warmup:delete', (_, taskId: string) => deleteWarmupTask(taskId))
 }
 
 app.whenReady().then(async () => {

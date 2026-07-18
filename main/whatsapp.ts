@@ -2,16 +2,14 @@ import type { WASocket, DisconnectReason } from 'baileys'
 import { all, one, run, getDb } from '../shared/database'
 import NodeCache from 'node-cache'
 import path from 'path'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, safeStorage } from 'electron'
 import fs from 'fs'
 import { generateAi, isAutoReplyEnabled } from './ai'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
-let sock: WASocket | null = null
+type AccountConnection = { sock: WASocket | null; connecting: Promise<void> | null; reconnectTimer: ReturnType<typeof setTimeout> | null; shouldReconnect: boolean }
+const connections = new Map<string, AccountConnection>()
 let mainWindow: BrowserWindow | null = null
-let connecting: Promise<void> | null = null
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-let shouldReconnect = true
 const autoReplyTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const autoReplyBusy = new Set<string>()
 
@@ -31,50 +29,61 @@ function notify(channel: string, data: any) {
   }
 }
 
-function queuePrivateAutoReply(phone: string) {
-  if (!isAutoReplyEnabled() || autoReplyBusy.has(phone)) return
-  const previous = autoReplyTimers.get(phone)
+function connection(accountId: string) {
+  if (!connections.has(accountId)) connections.set(accountId, { sock: null, connecting: null, reconnectTimer: null, shouldReconnect: true })
+  return connections.get(accountId)!
+}
+
+function queuePrivateAutoReply(accountId: string, phone: string) {
+  const key = `${accountId}:${phone}`
+  if (!isAutoReplyEnabled() || autoReplyBusy.has(key)) return
+  const previous = autoReplyTimers.get(key)
   if (previous) clearTimeout(previous)
   const timer = setTimeout(async () => {
-    autoReplyTimers.delete(phone)
-    autoReplyBusy.add(phone)
+    autoReplyTimers.delete(key)
+    autoReplyBusy.add(key)
     try {
       const db = await getDb()
-      const history = all(db, 'SELECT * FROM inbox WHERE phone = ? ORDER BY received_at DESC LIMIT 10', [phone]).reverse()
+      const history = all(db, 'SELECT * FROM inbox WHERE account_id = ? AND phone = ? ORDER BY received_at DESC LIMIT 10', [accountId, phone]).reverse()
       const context = history.map((item: any) => `${item.from_me ? 'Atendente' : 'Cliente'}: ${item.message}`).join('\n')
       const result = await generateAi({ text: context, action: 'reply' })
       if (!result.success || !result.text) {
         notify('ai:auto-reply', { success: false, phone, error: result.error || 'Nenhum provedor de IA respondeu.' })
         return
       }
-      const sent = await sendMessage(phone, result.text)
-      notify('ai:auto-reply', { success: sent.success, phone, error: sent.error || '' })
+      const sent = await sendMessage(phone, result.text, accountId)
+      notify('ai:auto-reply', { success: sent.success, accountId, phone, error: sent.error || '' })
     } catch (error: any) {
       notify('ai:auto-reply', { success: false, phone, error: error?.message || 'Falha ao gerar resposta.' })
     } finally {
-      autoReplyBusy.delete(phone)
+      autoReplyBusy.delete(key)
     }
   }, 1800)
-  autoReplyTimers.set(phone, timer)
+  autoReplyTimers.set(key, timer)
 }
 
-export async function connectWA(): Promise<void> {
-  shouldReconnect = true
-  if (sock) return
-  if (connecting) return connecting
-  connecting = openConnection()
-  try { await connecting } finally { connecting = null }
+export async function connectWA(accountId = 'default'): Promise<void> {
+  const state = connection(accountId)
+  state.shouldReconnect = true
+  if (state.sock) return
+  if (state.connecting) return state.connecting
+  state.connecting = openConnection(accountId)
+  try { await state.connecting } finally { state.connecting = null }
 }
 
-async function openConnection(): Promise<void> {
+async function openConnection(accountId: string): Promise<void> {
   const baileys = await getBaileys()
-  const sDir = path.join(app.getPath('userData'), 'wa-session')
+  const sessionsRoot = path.join(app.getPath('userData'), 'wa-sessions')
+  const sDir = path.join(sessionsRoot, accountId.replace(/[^a-zA-Z0-9_-]/g, '_'))
+  const legacyDir = path.join(app.getPath('userData'), 'wa-session')
+  if (accountId === 'default' && fs.existsSync(legacyDir) && !fs.existsSync(sDir)) fs.cpSync(legacyDir, sDir, { recursive: true })
+  await restoreSessionFromSql(accountId, sDir)
   const { state, saveCreds } = await baileys.useMultiFileAuthState(sDir)
 
   const currentSock = baileys.makeWASocket({
     auth: state,
     syncFullHistory: false,
-    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.2.0'],
+    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.3.0'],
     generateHighQualityLinkPreview: true,
     msgRetryCounterCache: msgCache,
     defaultQueryTimeoutMs: 30000,
@@ -82,34 +91,38 @@ async function openConnection(): Promise<void> {
     markOnlineOnConnect: true,
     patchMessageBeforeSending: (m) => m,
   })
-  sock = currentSock
+  const account = connection(accountId)
+  account.sock = currentSock
 
-  currentSock.ev.on('creds.update', saveCreds)
+  currentSock.ev.on('creds.update', async () => { await saveCreds(); await syncSessionToSql(accountId, sDir) })
 
   currentSock.ev.on('connection.update', (u) => {
     if (u.qr) {
-      notify('wa:qr', { qr: u.qr })
+      notify('wa:qr', { accountId, qr: u.qr })
     }
-    if (u.connection === 'connecting') notify('wa:status', { status: 'connecting' })
+    if (u.connection === 'connecting') notify('wa:status', { accountId, status: 'connecting' })
     if (u.connection === 'close') {
-      if (sock !== currentSock) return
+      if (account.sock !== currentSock) return
       const error = u.lastDisconnect?.error as any
       const code = (error?.output?.statusCode ?? error?.data?.statusCode ?? error?.statusCode) as DisconnectReason
       const err = code === baileys.DisconnectReason.loggedOut ? 'Logout detectado'
         : code === baileys.DisconnectReason.connectionReplaced ? 'Conexão substituída'
         : 'Desconectado'
-      notify('wa:status', { status: 'disconnected', error: err })
-      sock = null
-      const canRetry = shouldReconnect
+      notify('wa:status', { accountId, status: 'disconnected', error: err })
+      account.sock = null
+      void updateAccountState(accountId, 'disconnected', '')
+      const canRetry = account.shouldReconnect
         && code !== baileys.DisconnectReason.loggedOut
         && code !== baileys.DisconnectReason.connectionReplaced
       if (canRetry) {
-        if (reconnectTimer) clearTimeout(reconnectTimer)
-        reconnectTimer = setTimeout(() => { reconnectTimer = null; void connectWA() }, 5000)
+        if (account.reconnectTimer) clearTimeout(account.reconnectTimer)
+        account.reconnectTimer = setTimeout(() => { account.reconnectTimer = null; void connectWA(accountId) }, 5000)
       }
     }
     if (u.connection === 'open') {
-      notify('wa:status', { status: 'connected', phone: sock?.user?.id?.split(':')[0] || '' })
+      const phone = currentSock.user?.id?.split(':')[0] || ''
+      notify('wa:status', { accountId, status: 'connected', phone })
+      void updateAccountState(accountId, 'connected', phone)
     }
   })
 
@@ -128,40 +141,83 @@ async function openConnection(): Promise<void> {
       if (!phone || !text) continue
       try {
         const db = await getDb()
-        run(db, 'INSERT OR IGNORE INTO inbox (id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [msg.key.id || crypto.randomUUID(), phone, msg.pushName || '', text, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, remoteJid])
-        notify('inbox:new', { phone, contact_name: msg.pushName || '', message: text, from_me: Boolean(msg.key.fromMe) })
-        if (m.type === 'notify' && !msg.key.fromMe) queuePrivateAutoReply(phone)
+        run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [`${accountId}:${msg.key.id || crypto.randomUUID()}`, accountId, phone, msg.pushName || '', text, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, remoteJid])
+        notify('inbox:new', { accountId, phone, contact_name: msg.pushName || '', message: text, from_me: Boolean(msg.key.fromMe) })
+        if (m.type === 'notify' && !msg.key.fromMe) {
+          await runAutomationRules(accountId, phone, text)
+          queuePrivateAutoReply(accountId, phone)
+        }
       } catch (_) {}
     }
+    void syncSessionToSql(accountId, sDir)
   })
 }
 
-export async function restoreWA() {
-  const credsPath = path.join(app.getPath('userData'), 'wa-session', 'creds.json')
-  if (!fs.existsSync(credsPath)) return false
-  try {
-    const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'))
-    if (!creds.registered && !creds.me?.id) return false
-    await connectWA()
-    return true
-  } catch {
-    return false
+async function syncSessionToSql(accountId: string, sessionDir: string) {
+  if (!fs.existsSync(sessionDir)) return
+  const db = await getDb()
+  for (const fileName of fs.readdirSync(sessionDir).filter(name => name.endsWith('.json'))) {
+    try {
+      const raw = fs.readFileSync(path.join(sessionDir, fileName), 'utf8')
+      const payload = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(raw).toString('base64') : Buffer.from(raw).toString('base64')
+      run(db, `INSERT INTO whatsapp_session_store (account_id,file_name,encrypted_payload,updated_at) VALUES (?,?,?,datetime('now'))
+        ON CONFLICT(account_id,file_name) DO UPDATE SET encrypted_payload=excluded.encrypted_payload,updated_at=datetime('now')`, [accountId, fileName, payload])
+    } catch {}
   }
 }
 
-export function disconnectWA() {
-  shouldReconnect = false
-  if (reconnectTimer) clearTimeout(reconnectTimer)
-  reconnectTimer = null
-  const currentSock = sock
-  sock = null
-  currentSock?.end(new Error('Desconectado pelo usuário'))
+async function restoreSessionFromSql(accountId: string, sessionDir: string) {
+  const db = await getDb()
+  const rows = all(db, 'SELECT file_name, encrypted_payload FROM whatsapp_session_store WHERE account_id = ?', [accountId]) as any[]
+  if (!rows.length) return
+  fs.mkdirSync(sessionDir, { recursive: true })
+  for (const row of rows) {
+    if (!/^[a-zA-Z0-9_.-]+\.json$/.test(row.file_name)) continue
+    const target = path.join(sessionDir, row.file_name)
+    if (fs.existsSync(target)) continue
+    try {
+      const buffer = Buffer.from(row.encrypted_payload, 'base64')
+      const raw = safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buffer) : buffer.toString('utf8')
+      fs.writeFileSync(target, raw, 'utf8')
+    } catch {}
+  }
 }
 
-export function getConnectionStatus() {
-  if (!sock || !sock.user?.id) return { connected: false }
-  return { connected: true, phone: sock.user?.id?.split(':')[0] || '' }
+export async function restoreWA() {
+  const db = await getDb()
+  const accounts = all(db, 'SELECT id FROM whatsapp_accounts') as { id: string }[]
+  let restored = false
+  for (const item of accounts) {
+    const current = path.join(app.getPath('userData'), 'wa-sessions', item.id.replace(/[^a-zA-Z0-9_-]/g, '_'), 'creds.json')
+    const legacy = path.join(app.getPath('userData'), 'wa-session', 'creds.json')
+    const credsPath = item.id === 'default' && !fs.existsSync(current) ? legacy : current
+    if (!fs.existsSync(credsPath)) continue
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'))
+      if (!creds.registered && !creds.me?.id) continue
+      await connectWA(item.id)
+      restored = true
+    } catch {}
+  }
+  return restored
+}
+
+export function disconnectWA(accountId = 'default') {
+  const account = connection(accountId)
+  account.shouldReconnect = false
+  if (account.reconnectTimer) clearTimeout(account.reconnectTimer)
+  account.reconnectTimer = null
+  const currentSock = account.sock
+  currentSock?.end(new Error('Desconectado pelo usuário'))
+  account.sock = null
+  void updateAccountState(accountId, 'disconnected', '')
+}
+
+export function getConnectionStatus(accountId = 'default') {
+  const sock = connection(accountId).sock
+  if (!sock || !sock.user?.id) return { connected: false, accountId }
+  return { connected: true, accountId, phone: sock.user?.id?.split(':')[0] || '' }
 }
 
 export function interpolate(tpl: string, vars: Record<string, string>) {
@@ -174,7 +230,37 @@ function ms(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-export async function sendMessage(phone: string, message: string) {
+async function updateAccountState(accountId: string, status: string, phone: string) {
+  const db = await getDb()
+  run(db, `UPDATE whatsapp_accounts SET status = ?, phone = CASE WHEN ? <> '' THEN ? ELSE phone END, updated_at = datetime('now') WHERE id = ?`,
+    [status, phone, phone, accountId])
+}
+
+async function runAutomationRules(accountId: string, phone: string, message: string) {
+  const db = await getDb()
+  const normalized = message.toLocaleLowerCase('pt-BR')
+  const rules = all(db, `SELECT * FROM automation_rules WHERE enabled = 1 AND (account_id = '*' OR account_id = ?)`, [accountId]) as any[]
+  for (const rule of rules) {
+    const keyword = String(rule.keyword || '').trim().toLocaleLowerCase('pt-BR')
+    if (keyword && !normalized.includes(keyword)) continue
+    const current = one(db, 'SELECT * FROM conversations WHERE account_id = ? AND phone = ?', [accountId, phone]) as any
+    const tags = new Set(String(current?.tags || '').split(',').map((tag: string) => tag.trim()).filter(Boolean))
+    if (rule.add_tag) tags.add(rule.add_tag)
+    run(db, `INSERT INTO conversations (account_id, phone, status, priority, tags, updated_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(account_id, phone) DO UPDATE SET
+        status = CASE WHEN excluded.status <> '' THEN excluded.status ELSE conversations.status END,
+        priority = CASE WHEN excluded.priority <> '' THEN excluded.priority ELSE conversations.priority END,
+        tags = excluded.tags, updated_at = datetime('now')`,
+      [accountId, phone, rule.set_status || current?.status || 'open', rule.set_priority || current?.priority || 'normal', [...tags].join(', ')])
+    run(db, "UPDATE automation_rules SET executions = executions + 1, updated_at = datetime('now') WHERE id = ?", [rule.id])
+    if (String(rule.reply || '').trim()) await sendMessage(phone, interpolate(rule.reply, { phone }), accountId)
+    notify('automation:executed', { accountId, phone, ruleId: rule.id, name: rule.name })
+  }
+}
+
+export async function sendMessage(phone: string, message: string, accountId = 'default') {
+  const sock = connection(accountId).sock
   if (!sock) return { success: false, error: 'WhatsApp não conectado' }
 
   const jid = phone.startsWith('lid:')
@@ -183,17 +269,17 @@ export async function sendMessage(phone: string, message: string) {
   try {
     const sent = await sock.sendMessage(jid, { text: message })
     const db = await getDb()
-    run(db, 'INSERT INTO send_log (id, phone, message, status) VALUES (?, ?, ?, ?)',
-      [crypto.randomUUID(), phone, message, 'sent'])
-    run(db, 'INSERT OR IGNORE INTO inbox (id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, 1, 1, ?)',
-      [sent?.key?.id || crypto.randomUUID(), phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), '', message, jid])
-    notify('inbox:new', { phone: phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), contact_name: '', message, from_me: true })
+    run(db, 'INSERT INTO send_log (id, account_id, phone, message, status) VALUES (?, ?, ?, ?, ?)',
+      [crypto.randomUUID(), accountId, phone, message, 'sent'])
+    run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, 1, 1, ?)',
+      [`${accountId}:${sent?.key?.id || crypto.randomUUID()}`, accountId, phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), '', message, jid])
+    notify('inbox:new', { accountId, phone: phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), contact_name: '', message, from_me: true })
     return { success: true }
   } catch (err: any) {
     const e = err?.message || 'Erro ao enviar'
     const db = await getDb()
-    run(db, 'INSERT INTO send_log (id, phone, message, status, error) VALUES (?, ?, ?, ?, ?)',
-      [crypto.randomUUID(), phone, message, 'failed', e])
+    run(db, 'INSERT INTO send_log (id, account_id, phone, message, status, error) VALUES (?, ?, ?, ?, ?, ?)',
+      [crypto.randomUUID(), accountId, phone, message, 'failed', e])
     return { success: false, error: e }
   }
 }
