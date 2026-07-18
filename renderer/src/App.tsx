@@ -14,7 +14,7 @@ import Warmup from './pages/Warmup'
 import Automations from './pages/Automations'
 import Pipeline from './pages/Pipeline'
 import TitleBar from './components/TitleBar'
-import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Flame, Gauge, GitBranch, MessageCircleMore, MessagesSquare, PlugZap, Send, Settings as SettingsIcon, Unplug, UsersRound, Workflow } from 'lucide-react'
+import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Flame, Gauge, GitBranch, Link2Off, MessageCircleMore, MessagesSquare, Plus, PlugZap, Send, Settings as SettingsIcon, Trash2, Unplug, UsersRound, Workflow, X } from 'lucide-react'
 
 declare global {
   interface Window {
@@ -22,6 +22,7 @@ declare global {
     zap: {
       connect: (accountId?: string) => Promise<any>
       disconnect: (accountId?: string) => Promise<any>
+      unlink: (accountId?: string) => Promise<any>
       getStatus: (accountId?: string) => Promise<any>
       getAccounts: () => Promise<any[]>
       createAccount: (name: string) => Promise<any>
@@ -93,6 +94,10 @@ function AppContent() {
   const [aiNotice, setAiNotice] = useState<{ success: boolean; text: string } | null>(null)
   const [accounts, setAccounts] = useState<any[]>([])
   const [accountId, setAccountId] = useState(() => localStorage.getItem('zap-active-account') || 'default')
+  const [accountsOpen, setAccountsOpen] = useState(false)
+  const [newAccountName, setNewAccountName] = useState('')
+  const [accountBusy, setAccountBusy] = useState('')
+  const [connectionError, setConnectionError] = useState('')
   const { colors, mode } = useTheme()
 
   const genQr = useCallback(async (raw: string) => {
@@ -118,6 +123,7 @@ function AppContent() {
         setWaPhone('')
         if (data.status === 'disconnected') setQrCode('')
       }
+      window.zap.getAccounts().then(setAccounts)
     })
     const unsub3 = window.zap.on('inbox:new', (data) => {
       if ((data.accountId || 'default') === accountId) window.zap.getUnreadCount(accountId).then(setUnread)
@@ -133,6 +139,10 @@ function AppContent() {
         setWaStatus('connected')
         setWaPhone(status.phone || '')
         setQrCode('')
+      } else {
+        setWaConnected(false)
+        setWaStatus(status.status || 'disconnected')
+        setWaPhone('')
       }
     })
     syncStatus()
@@ -142,11 +152,74 @@ function AppContent() {
     return () => { clearTimeout(statusTimer); unsub1(); unsub2(); unsub3(); unsub4() }
   }, [accountId])
 
-  const handleConnect = async () => {
+  const handleConnect = async (targetAccountId = accountId) => {
     setPage('dashboard')
-    if (!waConnected) {
-      try { await window.zap.connect(accountId) } catch (e: any) { console.error('connect error', e) }
+    setConnectionError('')
+    try {
+      setWaStatus('connecting')
+      const result = await window.zap.connect(targetAccountId)
+      if (!result?.success) throw new Error(result?.error || 'Falha ao iniciar conexão')
+    } catch (e: any) {
+      setWaStatus('disconnected')
+      setConnectionError(e?.message || 'Falha ao conectar WhatsApp')
     }
+  }
+
+  const handleCreateAccount = async () => {
+    const name = newAccountName.trim()
+    if (!name || accountBusy) return
+    setAccountBusy('create')
+    setConnectionError('')
+    try {
+      const created = await window.zap.createAccount(name)
+      if (!created?.success || !created.id) throw new Error(created?.error || 'Não foi possível criar a conta')
+      const next = await window.zap.getAccounts()
+      setAccounts(next)
+      setAccountId(created.id)
+      localStorage.setItem('zap-active-account', created.id)
+      setNewAccountName('')
+      setAccountsOpen(false)
+      setPage('dashboard')
+      setWaConnected(false)
+      setWaStatus('connecting')
+      const connected = await window.zap.connect(created.id)
+      if (!connected?.success) throw new Error(connected?.error || 'Não foi possível gerar o QR Code')
+    } catch (e: any) {
+      setWaStatus('disconnected')
+      setConnectionError(e?.message || 'Falha ao adicionar conta')
+    } finally { setAccountBusy('') }
+  }
+
+  const handleDisconnect = async () => {
+    if (accountBusy) return
+    setAccountBusy(accountId)
+    const result = await window.zap.disconnect(accountId)
+    setAccountBusy('')
+    if (!result?.success) { setConnectionError(result?.error || 'Falha ao desconectar'); return }
+    setWaConnected(false); setWaStatus('disconnected'); setWaPhone(''); setQrCode('')
+    setAccounts(await window.zap.getAccounts())
+  }
+
+  const handleUnlink = async (id: string) => {
+    const account = accounts.find(item => item.id === id)
+    if (!confirm(`Desvincular ${account?.name || 'esta conta'}? Será necessário ler um novo QR Code para conectar novamente. O histórico de mensagens será mantido.`)) return
+    setAccountBusy(id)
+    const result = await window.zap.unlink(id)
+    setAccountBusy('')
+    if (!result?.success) { setConnectionError(result?.error || 'Falha ao desvincular'); return }
+    if (id === accountId) { setWaConnected(false); setWaStatus('disconnected'); setWaPhone(''); setQrCode('') }
+    setAccounts(await window.zap.getAccounts())
+  }
+
+  const handleDeleteAccount = async (id: string) => {
+    const account = accounts.find(item => item.id === id)
+    if (id === 'default' || !confirm(`Excluir o acesso à conta “${account?.name || 'WhatsApp'}” deste aplicativo?`)) return
+    setAccountBusy(id)
+    const result = await window.zap.deleteAccount(id)
+    setAccountBusy('')
+    if (!result?.success) { setConnectionError(result?.error || 'Falha ao excluir conta'); return }
+    if (accountId === id) { setAccountId('default'); localStorage.setItem('zap-active-account', 'default') }
+    setAccounts(await window.zap.getAccounts())
   }
 
   const nav = [
@@ -212,7 +285,7 @@ function AppContent() {
           <select value={accountId} onChange={(event) => { setAccountId(event.target.value); localStorage.setItem('zap-active-account', event.target.value); setWaConnected(false); setWaStatus('disconnected') }}>
             {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.phone ? ` · ${account.phone}` : ''}</option>)}
           </select>
-          <button title="Adicionar conta por QR Code" onClick={async () => { const name = prompt('Nome da nova conta WhatsApp'); if (!name?.trim()) return; const result = await window.zap.createAccount(name); const next = await window.zap.getAccounts(); setAccounts(next); if (result.id) { setAccountId(result.id); localStorage.setItem('zap-active-account', result.id) } }}>+</button>
+          <button title="Gerenciar contas WhatsApp" onClick={() => setAccountsOpen(true)}><SettingsIcon size={15} /></button>
         </div>
 
         {waStatus === 'connecting' && qrCode && (
@@ -245,18 +318,19 @@ function AppContent() {
 
         <div className="sidebar-footer" style={{ borderColor: colors.border }}>
           {waStatus === 'disconnected' && (
-            <button onClick={handleConnect} className="connect-button">
+            <button onClick={() => void handleConnect()} className="connect-button">
               <PlugZap size={18} /> Conectar WhatsApp
             </button>
           )}
           {waStatus === 'connected' && (
-            <button onClick={() => window.zap.disconnect(accountId)} className="disconnect-button" style={{ color: colors.danger, borderColor: colors.danger }}>
-              <Unplug size={17} /> Desconectar
+            <button disabled={accountBusy === accountId} onClick={handleDisconnect} className="disconnect-button" style={{ color: colors.danger, borderColor: colors.danger }}>
+              <Unplug size={17} /> {accountBusy === accountId ? 'Desconectando...' : 'Desconectar'}
             </button>
           )}
           {waStatus === 'connecting' && (
-            <div className="connecting-text" style={{ color: colors.warning }}>
-              <span className="loader" /> Preparando conexão...
+            <div className="connecting-stack" style={{ color: colors.warning }}>
+              <div className="connecting-text"><span className="loader" /> Preparando conexão...</div>
+              <button onClick={handleDisconnect} className="disconnect-button" style={{ color: colors.textMuted, borderColor: colors.border }}>Cancelar conexão</button>
             </div>
           )}
         </div>
@@ -267,7 +341,29 @@ function AppContent() {
           {pages[page]}
         </div>
       </main>
+      {accountsOpen && <div className="account-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setAccountsOpen(false) }}>
+        <section className="account-modal" style={{ background: colors.surface, borderColor: colors.border }} role="dialog" aria-modal="true" aria-label="Contas WhatsApp">
+          <header><div><span className="eyebrow">CONEXÕES POR QR CODE</span><h2>Contas WhatsApp</h2><p>Conecte, pause ou troque o número de cada operação.</p></div><button className="icon-button" onClick={() => setAccountsOpen(false)} title="Fechar"><X size={17} /></button></header>
+          <div className="new-account-form"><input aria-label="Nome da nova conta" value={newAccountName} onChange={event => setNewAccountName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void handleCreateAccount() }} placeholder="Ex.: Comercial, Suporte, Unidade Centro" /><button className="primary-button" disabled={!newAccountName.trim() || accountBusy === 'create'} onClick={handleCreateAccount}><Plus size={16} /> {accountBusy === 'create' ? 'Criando...' : 'Adicionar e conectar'}</button></div>
+          <div className="account-list">{accounts.map(account => {
+            const connected = account.status === 'connected'
+            const connecting = account.status === 'connecting'
+            return <article key={account.id} className={`account-row ${account.id === accountId ? 'selected' : ''}`}>
+              <span className={`account-state ${connected ? 'online' : connecting ? 'waiting' : ''}`} />
+              <div><strong>{account.name}</strong><small>{connected ? `Conectado · ${account.phone || 'linha ativa'}` : connecting ? 'Aguardando leitura do QR Code' : account.phone ? `Pausado · ${account.phone}` : 'Sem número vinculado'}</small></div>
+              <div className="account-row-actions">
+                {!connected && !connecting && <button onClick={async () => { setAccountId(account.id); localStorage.setItem('zap-active-account', account.id); setAccountsOpen(false); setWaConnected(false); setWaStatus('disconnected'); await handleConnect(account.id) }}><PlugZap size={14} /> Conectar</button>}
+                {(connected || connecting) && <button onClick={async () => { setAccountId(account.id); localStorage.setItem('zap-active-account', account.id); await window.zap.disconnect(account.id); setAccounts(await window.zap.getAccounts()); if (account.id === accountId) { setWaConnected(false); setWaStatus('disconnected'); setQrCode('') } }}><Unplug size={14} /> Pausar</button>}
+                {account.phone && <button onClick={() => void handleUnlink(account.id)}><Link2Off size={14} /> Trocar número</button>}
+                {account.id !== 'default' && <button className="danger" title="Excluir conta" onClick={() => void handleDeleteAccount(account.id)}><Trash2 size={14} /></button>}
+              </div>
+            </article>
+          })}</div>
+          <footer><span><b>Desconectar/Pausar</b> mantém a sessão. <b>Trocar número</b> desvincula o WhatsApp e exige novo QR.</span></footer>
+        </section>
+      </div>}
       {aiNotice && <div role="status" style={{ position: 'fixed', right: 22, bottom: 22, zIndex: 1100, maxWidth: 360, padding: '12px 15px', border: `1px solid ${aiNotice.success ? colors.border2 : colors.danger}`, background: colors.surface, color: aiNotice.success ? colors.success : colors.danger, boxShadow: '0 10px 30px rgba(15,23,42,.16)', fontSize: 12, fontWeight: 700 }}>{aiNotice.text}</div>}
+      {connectionError && <div role="alert" className="connection-error" style={{ background: colors.surface, color: colors.danger, borderColor: colors.danger }}><span>{connectionError}</span><button onClick={() => setConnectionError('')}><X size={14} /></button></div>}
     </div>
     </div>
   )

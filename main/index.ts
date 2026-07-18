@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'path'
 import { getDb, all, one, run } from '../shared/database'
-import { connectWA, disconnectWA, restoreWA, sendMessage, massSend, setMainWindow, interpolate, getConnectionStatus } from './whatsapp'
+import { connectWA, disconnectWA, unlinkWA, restoreWA, sendMessage, massSend, setMainWindow, interpolate, getConnectionStatus } from './whatsapp'
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import { generateAi, getAiConfig, listAiModels, updateAiConfig } from './ai'
@@ -59,14 +59,15 @@ function registerIPC() {
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
   ipcMain.handle('wa:connect', async (_, accountId = 'default') => { try { await connectWA(accountId); return { success: true } } catch (e: any) { return { success: false, error: e?.message || String(e) } } })
-  ipcMain.handle('wa:disconnect', (_, accountId = 'default') => { disconnectWA(accountId); return { success: true } })
+  ipcMain.handle('wa:disconnect', async (_, accountId = 'default') => disconnectWA(accountId))
+  ipcMain.handle('wa:unlink', async (_, accountId = 'default') => unlinkWA(accountId))
   ipcMain.handle('wa:status', (_, accountId = 'default') => getConnectionStatus(accountId))
   ipcMain.handle('send:message', async (_, phone: string, message: string, accountId = 'default') => sendMessage(phone, message, accountId))
   ipcMain.handle('accounts:list', async () => {
     const db = await getDb()
     return all(db, 'SELECT * FROM whatsapp_accounts ORDER BY is_default DESC, created_at').map((row: any) => {
       const live = getConnectionStatus(row.id)
-      return { ...row, ...live, status: live.connected ? 'connected' : 'disconnected' }
+      return { ...row, ...live, status: live.status || (live.connected ? 'connected' : 'disconnected') }
     })
   })
   ipcMain.handle('accounts:create', async (_, name: string) => {
@@ -79,7 +80,7 @@ function registerIPC() {
   })
   ipcMain.handle('accounts:delete', async (_, id: string) => {
     if (id === 'default') return { success: false, error: 'A conta principal não pode ser excluída.' }
-    disconnectWA(id); const db = await getDb(); run(db, 'DELETE FROM whatsapp_accounts WHERE id = ?', [id]); return { success: true }
+    await unlinkWA(id); const db = await getDb(); run(db, 'DELETE FROM whatsapp_accounts WHERE id = ?', [id]); return { success: true }
   })
 
   // Contacts

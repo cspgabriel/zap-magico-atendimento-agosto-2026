@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('zap', {
   // Conexão WhatsApp
   connect: (accountId?: string) => ipcRenderer.invoke('wa:connect', accountId),
   disconnect: (accountId?: string) => ipcRenderer.invoke('wa:disconnect', accountId),
+  unlink: (accountId?: string) => ipcRenderer.invoke('wa:unlink', accountId),
   getStatus: (accountId?: string) => ipcRenderer.invoke('wa:status', accountId),
   getAccounts: () => ipcRenderer.invoke('accounts:list'),
   createAccount: (name: string) => ipcRenderer.invoke('accounts:create', name),

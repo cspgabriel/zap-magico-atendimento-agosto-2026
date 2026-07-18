@@ -1,4 +1,4 @@
-# Zap Mágico Atendimento · 1.3.0
+# Zap Mágico Atendimento · 1.3.1
 
 Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox, CRM leve e assistência de IA.
 
@@ -35,7 +35,7 @@ npm run package
 O instalador atual fica em:
 
 ```text
-release/v1.3.0/Zap Mágico WPP Web QR Setup 1.3.0.exe
+release/v1.3.1/Zap Mágico WPP Web QR Setup 1.3.1.exe
 ```
 
 ## Dados locais

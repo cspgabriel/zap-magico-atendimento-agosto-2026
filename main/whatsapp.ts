@@ -7,7 +7,7 @@ import fs from 'fs'
 import { generateAi, isAutoReplyEnabled } from './ai'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
-type AccountConnection = { sock: WASocket | null; connecting: Promise<void> | null; reconnectTimer: ReturnType<typeof setTimeout> | null; shouldReconnect: boolean }
+type AccountConnection = { sock: WASocket | null; connecting: Promise<void> | null; reconnectTimer: ReturnType<typeof setTimeout> | null; shouldReconnect: boolean; phase: 'disconnected' | 'connecting' | 'connected' }
 const connections = new Map<string, AccountConnection>()
 let mainWindow: BrowserWindow | null = null
 const autoReplyTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -30,7 +30,7 @@ function notify(channel: string, data: any) {
 }
 
 function connection(accountId: string) {
-  if (!connections.has(accountId)) connections.set(accountId, { sock: null, connecting: null, reconnectTimer: null, shouldReconnect: true })
+  if (!connections.has(accountId)) connections.set(accountId, { sock: null, connecting: null, reconnectTimer: null, shouldReconnect: true, phase: 'disconnected' })
   return connections.get(accountId)!
 }
 
@@ -65,10 +65,19 @@ function queuePrivateAutoReply(accountId: string, phone: string) {
 export async function connectWA(accountId = 'default'): Promise<void> {
   const state = connection(accountId)
   state.shouldReconnect = true
-  if (state.sock) return
+  if (state.sock && state.phase !== 'disconnected') return
   if (state.connecting) return state.connecting
+  state.phase = 'connecting'
+  notify('wa:status', { accountId, status: 'connecting' })
+  await updateAccountState(accountId, 'connecting', '')
   state.connecting = openConnection(accountId)
-  try { await state.connecting } finally { state.connecting = null }
+  try { await state.connecting } catch (error) {
+    state.phase = 'disconnected'
+    state.sock = null
+    notify('wa:status', { accountId, status: 'disconnected', error: error instanceof Error ? error.message : 'Falha ao conectar' })
+    await updateAccountState(accountId, 'disconnected', '')
+    throw error
+  } finally { state.connecting = null }
 }
 
 async function openConnection(accountId: string): Promise<void> {
@@ -83,7 +92,7 @@ async function openConnection(accountId: string): Promise<void> {
   const currentSock = baileys.makeWASocket({
     auth: state,
     syncFullHistory: false,
-    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.3.0'],
+    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.3.1'],
     generateHighQualityLinkPreview: true,
     msgRetryCounterCache: msgCache,
     defaultQueryTimeoutMs: 30000,
@@ -98,6 +107,7 @@ async function openConnection(accountId: string): Promise<void> {
 
   currentSock.ev.on('connection.update', (u) => {
     if (u.qr) {
+      account.phase = 'connecting'
       notify('wa:qr', { accountId, qr: u.qr })
     }
     if (u.connection === 'connecting') notify('wa:status', { accountId, status: 'connecting' })
@@ -110,6 +120,7 @@ async function openConnection(accountId: string): Promise<void> {
         : 'Desconectado'
       notify('wa:status', { accountId, status: 'disconnected', error: err })
       account.sock = null
+      account.phase = 'disconnected'
       void updateAccountState(accountId, 'disconnected', '')
       const canRetry = account.shouldReconnect
         && code !== baileys.DisconnectReason.loggedOut
@@ -121,6 +132,7 @@ async function openConnection(accountId: string): Promise<void> {
     }
     if (u.connection === 'open') {
       const phone = currentSock.user?.id?.split(':')[0] || ''
+      account.phase = 'connected'
       notify('wa:status', { accountId, status: 'connected', phone })
       void updateAccountState(accountId, 'connected', phone)
     }
@@ -203,21 +215,51 @@ export async function restoreWA() {
   return restored
 }
 
-export function disconnectWA(accountId = 'default') {
+export async function disconnectWA(accountId = 'default') {
   const account = connection(accountId)
   account.shouldReconnect = false
   if (account.reconnectTimer) clearTimeout(account.reconnectTimer)
   account.reconnectTimer = null
   const currentSock = account.sock
-  currentSock?.end(new Error('Desconectado pelo usuário'))
   account.sock = null
-  void updateAccountState(accountId, 'disconnected', '')
+  account.phase = 'disconnected'
+  notify('wa:status', { accountId, status: 'disconnected' })
+  await updateAccountState(accountId, 'disconnected', '')
+  try { currentSock?.end(new Error('Desconectado pelo usuário')) } catch {}
+  return { success: true }
+}
+
+export async function unlinkWA(accountId = 'default') {
+  const account = connection(accountId)
+  account.shouldReconnect = false
+  if (account.reconnectTimer) clearTimeout(account.reconnectTimer)
+  account.reconnectTimer = null
+  const currentSock = account.sock
+  account.sock = null
+  account.phase = 'disconnected'
+  try {
+    if (currentSock?.user?.id) await currentSock.logout()
+    else currentSock?.end(new Error('Sessão desvinculada pelo usuário'))
+  } catch {}
+
+  const sessionDir = path.join(app.getPath('userData'), 'wa-sessions', accountId.replace(/[^a-zA-Z0-9_-]/g, '_'))
+  if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true })
+  if (accountId === 'default') {
+    const legacyDir = path.join(app.getPath('userData'), 'wa-session')
+    if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true })
+  }
+  const db = await getDb()
+  run(db, 'DELETE FROM whatsapp_session_store WHERE account_id = ?', [accountId])
+  run(db, "UPDATE whatsapp_accounts SET status = 'disconnected', phone = '', updated_at = datetime('now') WHERE id = ?", [accountId])
+  notify('wa:status', { accountId, status: 'disconnected', unlinked: true })
+  return { success: true }
 }
 
 export function getConnectionStatus(accountId = 'default') {
-  const sock = connection(accountId).sock
-  if (!sock || !sock.user?.id) return { connected: false, accountId }
-  return { connected: true, accountId, phone: sock.user?.id?.split(':')[0] || '' }
+  const state = connection(accountId)
+  const sock = state.sock
+  if (!sock || !sock.user?.id) return { connected: false, accountId, status: state.phase }
+  return { connected: true, accountId, status: 'connected', phone: sock.user?.id?.split(':')[0] || '' }
 }
 
 export function interpolate(tpl: string, vars: Record<string, string>) {

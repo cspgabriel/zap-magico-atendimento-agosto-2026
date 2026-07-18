@@ -11,8 +11,11 @@ MOCK = r"""
   const ok = async () => ({success:true});
   window.zap = new Proxy({
     on:(channel,cb)=>{(listeners[channel] ||= []).push(cb);return()=>{}},
-    getAccounts:async()=>accounts, createAccount:async(name)=>{const id='new';accounts.push({id,name,status:'disconnected'});return{success:true,id}},
-    renameAccount:ok,deleteAccount:ok,connect:ok,disconnect:ok,getStatus:async(id)=>({accountId:id,connected:id==='default',phone:id==='default'?'5521999999999':''}),
+    getAccounts:async()=>accounts, createAccount:async(name)=>{const id='new';accounts.push({id,name,status:'disconnected',connected:false});return{success:true,id}},
+    renameAccount:ok,deleteAccount:ok,unlink:async(id)=>{accounts=accounts.map(a=>a.id===id?{...a,status:'disconnected',connected:false,phone:''}:a);return{success:true}},
+    connect:async(id)=>{accounts=accounts.map(a=>a.id===id?{...a,status:'connecting',connected:false}:a);return{success:true}},
+    disconnect:async(id)=>{accounts=accounts.map(a=>a.id===id?{...a,status:'disconnected',connected:false}:a);return{success:true}},
+    getStatus:async(id)=>{const a=accounts.find(x=>x.id===id);return{accountId:id,connected:Boolean(a?.connected),status:a?.status||'disconnected',phone:a?.phone||''}},
     getUnreadCount:async()=>1,getInbox:async()=>[{id:'m1',account_id:'default',phone:'5521988887777',contact_name:'Cliente Demo',message:'Quero saber o preço',from_me:0,read:0,received_at:'2026-07-18 14:00:00'}],
     getConversationMeta:async()=>[],getTemplates:async()=>[],markRead:ok,markAllRead:ok,saveConversationMeta:async(x)=>x,sendMessage:ok,
     getAutomations:async()=>rules,saveAutomation:async(r)=>{const row={...r,id:r.id||'r1',executions:r.executions||0,enabled:r.enabled===false?0:1};rules=rules.filter(x=>x.id!==row.id).concat(row);return{success:true,id:row.id}},deleteAutomation:async(id)=>{rules=rules.filter(x=>x.id!==id);return{success:true}},
@@ -31,6 +34,14 @@ with sync_playwright() as p:
     page.goto("http://127.0.0.1:5173", wait_until="networkidle")
     page.wait_for_timeout(800)
     print("BOOT_ERRORS", errors)
+    page.get_by_title("Gerenciar contas WhatsApp").click()
+    page.get_by_label("Nome da nova conta").fill("Suporte")
+    page.get_by_role("button", name="Adicionar e conectar").click()
+    page.get_by_title("Gerenciar contas WhatsApp").click()
+    support = page.locator(".account-row").filter(has_text="Suporte")
+    support.get_by_role("button", name="Pausar").click()
+    support.get_by_role("button", name="Conectar").wait_for()
+    page.locator(".account-modal").get_by_title("Fechar").click()
     page.get_by_role("button", name="Automações").click()
     page.get_by_role("button", name="Nova automação").click()
     page.get_by_label("Nome").fill("Triagem de preço")
