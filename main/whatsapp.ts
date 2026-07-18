@@ -4,10 +4,10 @@ import NodeCache from 'node-cache'
 import path from 'path'
 import { app, BrowserWindow, safeStorage } from 'electron'
 import fs from 'fs'
-import { generateAi, isAutoReplyEnabled } from './ai'
+import { generateAi, isAiSenderAuthorized, isAutoReplyEnabled } from './ai'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
-type AccountConnection = { sock: WASocket | null; connecting: Promise<void> | null; reconnectTimer: ReturnType<typeof setTimeout> | null; shouldReconnect: boolean; phase: 'disconnected' | 'connecting' | 'connected' }
+type AccountConnection = { sock: WASocket | null; connecting: Promise<void> | null; reconnectTimer: ReturnType<typeof setTimeout> | null; shouldReconnect: boolean; reconnectAttempts: number; phase: 'disconnected' | 'connecting' | 'connected' }
 const connections = new Map<string, AccountConnection>()
 let mainWindow: BrowserWindow | null = null
 const autoReplyTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -30,13 +30,13 @@ function notify(channel: string, data: any) {
 }
 
 function connection(accountId: string) {
-  if (!connections.has(accountId)) connections.set(accountId, { sock: null, connecting: null, reconnectTimer: null, shouldReconnect: true, phase: 'disconnected' })
+  if (!connections.has(accountId)) connections.set(accountId, { sock: null, connecting: null, reconnectTimer: null, shouldReconnect: true, reconnectAttempts: 0, phase: 'disconnected' })
   return connections.get(accountId)!
 }
 
 function queuePrivateAutoReply(accountId: string, phone: string) {
   const key = `${accountId}:${phone}`
-  if (!isAutoReplyEnabled() || autoReplyBusy.has(key)) return
+  if (!isAutoReplyEnabled(accountId) || autoReplyBusy.has(key)) return
   const previous = autoReplyTimers.get(key)
   if (previous) clearTimeout(previous)
   const timer = setTimeout(async () => {
@@ -46,7 +46,7 @@ function queuePrivateAutoReply(accountId: string, phone: string) {
       const db = await getDb()
       const history = all(db, 'SELECT * FROM inbox WHERE account_id = ? AND phone = ? ORDER BY received_at DESC LIMIT 10', [accountId, phone]).reverse()
       const context = history.map((item: any) => `${item.from_me ? 'Atendente' : 'Cliente'}: ${item.message}`).join('\n')
-      const result = await generateAi({ text: context, action: 'reply' })
+      const result = await generateAi({ text: context, action: 'reply', accountId })
       if (!result.success || !result.text) {
         notify('ai:auto-reply', { success: false, phone, error: result.error || 'Nenhum provedor de IA respondeu.' })
         return
@@ -92,7 +92,7 @@ async function openConnection(accountId: string): Promise<void> {
   const currentSock = baileys.makeWASocket({
     auth: state,
     syncFullHistory: false,
-    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.3.1'],
+    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.4.0'],
     generateHighQualityLinkPreview: true,
     msgRetryCounterCache: msgCache,
     defaultQueryTimeoutMs: 30000,
@@ -103,9 +103,13 @@ async function openConnection(accountId: string): Promise<void> {
   const account = connection(accountId)
   account.sock = currentSock
 
-  currentSock.ev.on('creds.update', async () => { await saveCreds(); await syncSessionToSql(accountId, sDir) })
+  currentSock.ev.on('creds.update', async () => {
+    if (connection(accountId).sock !== currentSock) return
+    await saveCreds()
+    if (connection(accountId).sock === currentSock) await syncSessionToSql(accountId, sDir)
+  })
 
-  currentSock.ev.on('connection.update', (u) => {
+  currentSock.ev.on('connection.update', async (u) => {
     if (u.qr) {
       account.phase = 'connecting'
       notify('wa:qr', { accountId, qr: u.qr })
@@ -114,25 +118,40 @@ async function openConnection(accountId: string): Promise<void> {
     if (u.connection === 'close') {
       if (account.sock !== currentSock) return
       const error = u.lastDisconnect?.error as any
-      const code = (error?.output?.statusCode ?? error?.data?.statusCode ?? error?.statusCode) as DisconnectReason
-      const err = code === baileys.DisconnectReason.loggedOut ? 'Logout detectado'
+      const rawCode = error?.output?.statusCode ?? error?.data?.statusCode ?? error?.data?.reason ?? error?.statusCode
+      const code = Number(rawCode) as DisconnectReason
+      const authInvalid = code === baileys.DisconnectReason.loggedOut || code === 401
+      const err = authInvalid ? 'Sessão expirada. Conecte novamente e leia um novo QR Code.'
         : code === baileys.DisconnectReason.connectionReplaced ? 'Conexão substituída'
         : 'Desconectado'
+      console.warn('[wa:close]', { accountId, code: Number.isFinite(code) ? code : 'unknown', reason: error?.data?.location || error?.message || 'unknown' })
       notify('wa:status', { accountId, status: 'disconnected', error: err })
       account.sock = null
       account.phase = 'disconnected'
       void updateAccountState(accountId, 'disconnected', '')
+      if (authInvalid) {
+        account.shouldReconnect = false
+        account.reconnectAttempts = 0
+        await clearInvalidSession(accountId, sDir)
+      }
       const canRetry = account.shouldReconnect
-        && code !== baileys.DisconnectReason.loggedOut
+        && !authInvalid
         && code !== baileys.DisconnectReason.connectionReplaced
+        && account.reconnectAttempts < 3
       if (canRetry) {
+        account.reconnectAttempts += 1
         if (account.reconnectTimer) clearTimeout(account.reconnectTimer)
-        account.reconnectTimer = setTimeout(() => { account.reconnectTimer = null; void connectWA(accountId) }, 5000)
+        const delay = 3000 * account.reconnectAttempts
+        account.reconnectTimer = setTimeout(() => { account.reconnectTimer = null; void connectWA(accountId) }, delay)
+      } else if (!authInvalid && account.shouldReconnect && account.reconnectAttempts >= 3) {
+        account.shouldReconnect = false
+        notify('wa:status', { accountId, status: 'disconnected', error: 'Não foi possível estabilizar a conexão. Clique em Conectar para tentar novamente.' })
       }
     }
     if (u.connection === 'open') {
       const phone = currentSock.user?.id?.split(':')[0] || ''
       account.phase = 'connected'
+      account.reconnectAttempts = 0
       notify('wa:status', { accountId, status: 'connected', phone })
       void updateAccountState(accountId, 'connected', phone)
     }
@@ -158,12 +177,28 @@ async function openConnection(accountId: string): Promise<void> {
         notify('inbox:new', { accountId, phone, contact_name: msg.pushName || '', message: text, from_me: Boolean(msg.key.fromMe) })
         if (m.type === 'notify' && !msg.key.fromMe) {
           await runAutomationRules(accountId, phone, text)
-          queuePrivateAutoReply(accountId, phone)
+          const authorized = await isAiSenderAuthorized(
+            accountId,
+            [phone, remoteJid, alternateJid],
+            (lidJid) => currentSock.signalRepository.lidMapping.getPNForLID(lidJid),
+          )
+          if (authorized) queuePrivateAutoReply(accountId, phone)
         }
       } catch (_) {}
     }
-    void syncSessionToSql(accountId, sDir)
+    if (connection(accountId).sock === currentSock) void syncSessionToSql(accountId, sDir)
   })
+}
+
+async function clearInvalidSession(accountId: string, sessionDir: string) {
+  if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true })
+  if (accountId === 'default') {
+    const legacyDir = path.join(app.getPath('userData'), 'wa-session')
+    if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true })
+  }
+  const db = await getDb()
+  run(db, 'DELETE FROM whatsapp_session_store WHERE account_id = ?', [accountId])
+  run(db, "UPDATE whatsapp_accounts SET status = 'disconnected', phone = '', updated_at = datetime('now') WHERE id = ?", [accountId])
 }
 
 async function syncSessionToSql(accountId: string, sessionDir: string) {
@@ -258,7 +293,7 @@ export async function unlinkWA(accountId = 'default') {
 export function getConnectionStatus(accountId = 'default') {
   const state = connection(accountId)
   const sock = state.sock
-  if (!sock || !sock.user?.id) return { connected: false, accountId, status: state.phase }
+  if (state.phase !== 'connected' || !sock || !sock.user?.id) return { connected: false, accountId, status: state.phase }
   return { connected: true, accountId, status: 'connected', phone: sock.user?.id?.split(':')[0] || '' }
 }
 

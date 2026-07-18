@@ -1,4 +1,4 @@
-# Zap Mágico Atendimento · 1.3.1
+# Zap Mágico Atendimento · 1.4.0
 
 Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox, CRM leve e assistência de IA.
 
@@ -13,6 +13,10 @@ Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox,
 - Automações por palavra-chave: resposta, etiqueta, status e prioridade.
 - Sugestao de resposta com IA e editor para revisao manual.
 - OpenRouter, Gemini, OpenAI e DeepSeek como provedores opcionais.
+- Modos de IA: atendimento para todos ou assistente pessoal restrito ao ADMIN e autorizados.
+- Identificação automática por número WhatsApp (PN), JID alternativo e LID do Baileys 7.
+- Prompt, modo, permissões, provedor e base de conhecimento isolados por conta WhatsApp.
+- Recuperação de sessão 401 sem loop: credencial inválida é limpa e o app solicita novo QR.
 - Conexao WhatsApp Web por QR Code usando Baileys.
 - Banco, configuracoes, documentos e sessao armazenados localmente.
 
@@ -35,7 +39,7 @@ npm run package
 O instalador atual fica em:
 
 ```text
-release/v1.3.1/Zap Mágico WPP Web QR Setup 1.3.1.exe
+release/v1.4.0/Zap Mágico WPP Web QR Setup 1.4.0.exe
 ```
 
 ## Dados locais

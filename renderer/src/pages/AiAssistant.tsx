@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, CheckCircle2, ExternalLink, FileText, HelpCircle, KeyRound, RefreshCw, ShieldCheck, Sparkles, Trash2, X } from 'lucide-react'
+import { Bot, CheckCircle2, ExternalLink, FileText, HelpCircle, KeyRound, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRoundCheck, Users, X } from 'lucide-react'
 import { useTheme } from '../theme'
 
 const providers: Record<string, { label: string; keyUrl: string; docsUrl: string; help: string }> = {
@@ -10,7 +10,7 @@ const providers: Record<string, { label: string; keyUrl: string; docsUrl: string
   deepseek: { label: 'DeepSeek', keyUrl: 'https://platform.deepseek.com/api_keys', docsUrl: 'https://api-docs.deepseek.com/', help: 'Acesse a plataforma DeepSeek e crie uma API key.' },
 }
 
-export default function AiAssistant() {
+export default function AiAssistant({ accountId }: { accountId: string }) {
   const { colors } = useTheme()
   const [config, setConfig] = useState<any>({ provider: 'auto', providers: [] })
   const [prompt, setPrompt] = useState('')
@@ -19,28 +19,61 @@ export default function AiAssistant() {
   const [systemPrompt, setSystemPrompt] = useState('')
   const [knowledge, setKnowledge] = useState<any[]>([])
   const [autoReply, setAutoReply] = useState(true)
+  const [assistantMode, setAssistantMode] = useState<'service' | 'personal'>('service')
+  const [adminNumber, setAdminNumber] = useState('')
+  const [authorizedNumbers, setAuthorizedNumbers] = useState('')
+  const [accessSaveState, setAccessSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [accessError, setAccessError] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [showGuide, setShowGuide] = useState(() => !localStorage.getItem('zap-ai-guide-seen-v2'))
-  useEffect(() => { window.zap.aiGetConfig().then((data) => { setConfig(data); setSystemPrompt(data.systemPrompt || ''); setAutoReply(data.autoReply !== false); setKnowledge(data.knowledge || []) }) }, [])
-  async function saveProvider(id: string, key: string, model: string) { setConfig(await window.zap.aiSaveConfig({ id, key, model })) }
+  useEffect(() => {
+    let active = true
+    setSaveState('idle'); setAccessSaveState('idle'); setAccessError('')
+    setConfig({ provider: 'auto', providers: [] }); setSystemPrompt(''); setAutoReply(true); setAssistantMode('service'); setAdminNumber(''); setAuthorizedNumbers(''); setKnowledge([])
+    window.zap.aiGetConfig(accountId).then((data) => { if (active) { setConfig(data); setSystemPrompt(data.systemPrompt || ''); setAutoReply(data.autoReply !== false); setAssistantMode(data.assistantMode || 'service'); setAdminNumber(data.adminNumber || ''); setAuthorizedNumbers((data.authorizedNumbers || []).join('\n')); setKnowledge(data.knowledge || []) } })
+    return () => { active = false }
+  }, [accountId])
+  async function saveProvider(id: string, key: string, model: string) { setConfig(await window.zap.aiSaveConfig(accountId, { id, key, model })) }
   async function generate() {
     if (!prompt.trim()) return
-    setLoading(true); const response = await window.zap.aiGenerate({ text: prompt, action: 'create', provider: config.provider }); setLoading(false)
+    setLoading(true); const response = await window.zap.aiGenerate(accountId, { text: prompt, action: 'create', provider: config.provider }); setLoading(false)
     if (response.success) setResult(response.text); else alert(response.error)
   }
   async function saveAutoReply(value: boolean) {
     setAutoReply(value)
-    try { setConfig(await window.zap.aiSaveConfig({ autoReply: value })) } catch { setAutoReply(!value) }
+    try { setConfig(await window.zap.aiSaveConfig(accountId, { autoReply: value })) } catch { setAutoReply(!value) }
+  }
+  async function saveAccessConfig() {
+    try {
+      setAccessSaveState('saving'); setAccessError('')
+      const saved = await window.zap.aiSaveConfig(accountId, { assistantMode, adminNumber, authorizedNumbers: authorizedNumbers.split(/[\n,;]+/).map(value => value.trim()).filter(Boolean) })
+      setConfig(saved); setAssistantMode(saved.assistantMode); setAdminNumber(saved.adminNumber || ''); setAuthorizedNumbers((saved.authorizedNumbers || []).join('\n'))
+      setAccessSaveState('saved'); setTimeout(() => setAccessSaveState('idle'), 2200)
+    } catch (error: any) {
+      setAccessSaveState('error'); setAccessError(error?.message || 'Não foi possível salvar.')
+    }
   }
   return <div>
     {showGuide && <ApiGuideModal colors={colors} close={() => { localStorage.setItem('zap-ai-guide-seen-v2', '1'); setShowGuide(false) }} />}
-    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}><Bot color={colors.accent} /><h2 style={{ fontSize: 20, margin: 0 }}>Assistente IA</h2><button onClick={() => setShowGuide(true)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.textMuted, padding: '7px 10px', cursor: 'pointer', fontSize: 11 }}><HelpCircle size={15} /> Como configurar</button></div>
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 6 }}><Bot color={colors.accent} /><h2 style={{ fontSize: 20, margin: 0 }}>Assistente IA</h2><small style={{ color: colors.textMuted }}>Configuração isolada · {accountId}</small><button onClick={() => setShowGuide(true)} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${colors.border}`, background: colors.surface, color: colors.textMuted, padding: '7px 10px', cursor: 'pointer', fontSize: 11 }}><HelpCircle size={15} /> Como configurar</button></div>
     <p style={{ color: colors.textMuted, fontSize: 13, marginTop: 0 }}>Dê contexto à IA e gere respostas revisáveis para o WhatsApp.</p>
+    <section style={{ marginBottom: 16, background: colors.surface, border: `1px solid ${assistantMode === 'personal' ? colors.border2 : colors.border}`, borderRadius: 8, padding: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><UserRoundCheck size={16} color={colors.accent} /><strong style={{ fontSize: 13 }}>Quem o assistente pode responder</strong><small style={{ marginLeft: 'auto', color: colors.textDim }}>Grupos e status sempre ignorados</small></div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 11 }}>
+        <button onClick={() => setAssistantMode('service')} style={{ textAlign: 'left', padding: 11, border: `1px solid ${assistantMode === 'service' ? colors.accent : colors.border}`, background: assistantMode === 'service' ? colors.successBg : colors.bg, color: colors.text, cursor: 'pointer' }}><Users size={16} color={colors.accent} /><strong style={{ display: 'block', marginTop: 5, fontSize: 12 }}>Modo atendimento</strong><small style={{ color: colors.textMuted }}>A IA responde todos os contatos privados.</small></button>
+        <button onClick={() => setAssistantMode('personal')} style={{ textAlign: 'left', padding: 11, border: `1px solid ${assistantMode === 'personal' ? colors.accent : colors.border}`, background: assistantMode === 'personal' ? colors.successBg : colors.bg, color: colors.text, cursor: 'pointer' }}><ShieldCheck size={16} color={colors.accent} /><strong style={{ display: 'block', marginTop: 5, fontSize: 12 }}>Assistente pessoal IA</strong><small style={{ color: colors.textMuted }}>Responde somente ADMIN e números autorizados.</small></button>
+      </div>
+      {assistantMode === 'personal' && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 9, marginTop: 10 }}>
+        <label style={{ color: colors.textMuted, fontSize: 11 }}>Número ADMIN *<input value={adminNumber} onChange={e => setAdminNumber(e.target.value)} placeholder="Ex.: 5521999999999" style={{ display: 'block', width: '100%', marginTop: 5, padding: 9, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} /></label>
+        <label style={{ color: colors.textMuted, fontSize: 11 }}>Outros números autorizados<textarea value={authorizedNumbers} onChange={e => setAuthorizedNumbers(e.target.value)} placeholder={'Um por linha\n5511999999999'} rows={3} style={{ display: 'block', width: '100%', marginTop: 5, padding: 9, resize: 'vertical', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} /></label>
+      </div>}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}><button onClick={() => void saveAccessConfig()} disabled={accessSaveState === 'saving'} style={{ padding: '7px 11px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>{accessSaveState === 'saving' ? 'Salvando...' : accessSaveState === 'saved' ? 'Configuração salva' : 'Salvar modo e permissões'}</button><small style={{ color: accessSaveState === 'error' ? colors.danger : colors.textMuted }}>{accessError || 'Aceita número, JID e LID; a conversão é automática quando o WhatsApp fornece o vínculo.'}</small></div>
+    </section>
     <section style={{ marginBottom: 16, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><FileText size={16} color={colors.accent} /><strong style={{ fontSize: 13 }}>Contexto do atendimento</strong><small style={{ marginLeft: 'auto', color: colors.textDim }}>Tudo fica neste computador</small></div>
       <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} placeholder="Ex.: Somos uma agência premium. Nunca prometa prazo sem confirmar. Termine com uma pergunta objetiva." rows={3} style={{ width: '100%', marginTop: 9, resize: 'vertical', padding: 10, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, fontSize: 12 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}><button onClick={async () => { try { setSaveState('saving'); const saved = await window.zap.aiSaveConfig({ systemPrompt: systemPrompt.trim() }); setConfig(saved); setSystemPrompt(saved.systemPrompt || systemPrompt); setSaveState('saved'); setTimeout(() => setSaveState('idle'), 2200) } catch { setSaveState('error') } }} disabled={saveState === 'saving'} style={{ padding: '7px 10px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: saveState === 'saving' ? 'wait' : 'pointer', fontSize: 11 }}>{saveState === 'saving' ? 'Salvando...' : saveState === 'saved' ? 'Instruções salvas' : saveState === 'error' ? 'Tentar novamente' : 'Salvar instruções'}</button><button onClick={async () => { const result = await window.zap.aiImportKnowledge(); if (result.success) setKnowledge(result.files || []) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', border: `1px solid ${colors.border2}`, background: colors.surface2, color: colors.text, cursor: 'pointer', fontSize: 11 }}><FileText size={13} /> Adicionar arquivos</button><small style={{ color: saveState === 'error' ? colors.danger : saveState === 'saved' ? colors.success : colors.textMuted }}>{saveState === 'error' ? 'Não foi possível salvar localmente.' : saveState === 'saved' ? 'Persistido neste computador.' : `${knowledge.length} arquivo(s) de contexto`}</small></div>
-      {knowledge.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>{knowledge.map(file => <span key={file.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 7px', background: colors.bg, border: `1px solid ${colors.border}`, color: colors.textMuted, fontSize: 10 }}>{file.name}<button onClick={async () => setKnowledge(await window.zap.aiDeleteKnowledge(file.name))} title="Remover arquivo" style={{ display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: colors.danger, cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button></span>)}</div>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}><button onClick={async () => { try { setSaveState('saving'); const saved = await window.zap.aiSaveConfig(accountId, { systemPrompt: systemPrompt.trim() }); setConfig(saved); setSystemPrompt(saved.systemPrompt || systemPrompt); setSaveState('saved'); setTimeout(() => setSaveState('idle'), 2200) } catch { setSaveState('error') } }} disabled={saveState === 'saving'} style={{ padding: '7px 10px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: saveState === 'saving' ? 'wait' : 'pointer', fontSize: 11 }}>{saveState === 'saving' ? 'Salvando...' : saveState === 'saved' ? 'Instruções salvas' : saveState === 'error' ? 'Tentar novamente' : 'Salvar instruções'}</button><button onClick={async () => { const result = await window.zap.aiImportKnowledge(accountId); if (result.success) setKnowledge(result.files || []) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', border: `1px solid ${colors.border2}`, background: colors.surface2, color: colors.text, cursor: 'pointer', fontSize: 11 }}><FileText size={13} /> Adicionar arquivos</button><small style={{ color: saveState === 'error' ? colors.danger : saveState === 'saved' ? colors.success : colors.textMuted }}>{saveState === 'error' ? 'Não foi possível salvar localmente.' : saveState === 'saved' ? 'Persistido nesta conta.' : `${knowledge.length} arquivo(s) de contexto desta conta`}</small></div>
+      {knowledge.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>{knowledge.map(file => <span key={file.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 7px', background: colors.bg, border: `1px solid ${colors.border}`, color: colors.textMuted, fontSize: 10 }}>{file.name}<button onClick={async () => setKnowledge(await window.zap.aiDeleteKnowledge(accountId, file.name))} title="Remover arquivo" style={{ display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: colors.danger, cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button></span>)}</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 13, paddingTop: 12, borderTop: `1px solid ${colors.border}` }}>
         <div style={{ flex: 1 }}><strong style={{ display: 'block', fontSize: 12 }}>Resposta automática no privado</strong><small style={{ color: colors.textMuted, fontSize: 10 }}>Responde mensagens novas com a IA. Grupos e status são sempre ignorados.</small></div>
         <button role="switch" aria-checked={autoReply} onClick={() => void saveAutoReply(!autoReply)} title={autoReply ? 'Desativar resposta automática' : 'Ativar resposta automática'} style={{ width: 46, height: 25, border: 0, borderRadius: 20, padding: 3, background: autoReply ? colors.accent : colors.border, cursor: 'pointer', display: 'flex', justifyContent: autoReply ? 'flex-end' : 'flex-start' }}><span style={{ width: 19, height: 19, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} /></button>
@@ -50,7 +83,7 @@ export default function AiAssistant() {
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(350px, 1.1fr) minmax(360px, .9fr)', gap: 18 }}>
       <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 18, alignSelf: 'start' }}>
         <label style={{ color: colors.textMuted, fontSize: 12 }}>Provedor principal</label>
-        <select value={config.provider} onChange={async e => setConfig(await window.zap.aiSaveConfig({ provider: e.target.value }))} style={{ width: '100%', padding: 10, margin: '5px 0 12px', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
+        <select value={config.provider} onChange={async e => setConfig(await window.zap.aiSaveConfig(accountId, { provider: e.target.value }))} style={{ width: '100%', padding: 10, margin: '5px 0 12px', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
           <option value="auto">Automático com fallback</option>{config.providers.map((p: any) => <option value={p.id} key={p.id}>{providers[p.id].label} · {p.model}</option>)}
         </select>
         <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Ex.: avise o cliente que o orçamento está pronto e pergunte o melhor horário para conversar" rows={7} style={{ width: '100%', resize: 'vertical', padding: 12, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} />
@@ -58,7 +91,7 @@ export default function AiAssistant() {
         {result && <div style={{ marginTop: 14, padding: 14, whiteSpace: 'pre-wrap', background: colors.surface2, borderRadius: 7, fontSize: 13, lineHeight: 1.6 }}>{result}</div>}
       </section>
       <section style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {config.providers.map((p: any) => <ProviderCard key={p.id} provider={p} save={saveProvider} colors={colors} />)}
+        {config.providers.map((p: any) => <ProviderCard key={`${accountId}:${p.id}`} accountId={accountId} provider={p} save={saveProvider} colors={colors} />)}
       </section>
     </div>
   </div>
@@ -97,7 +130,7 @@ function ApiGuideModal({ colors, close }: { colors: any; close: () => void }) {
   </div>, document.body)
 }
 
-function ProviderCard({ provider, save, colors }: any) {
+function ProviderCard({ accountId, provider, save, colors }: any) {
   const meta = providers[provider.id]
   const [key, setKey] = useState('')
   const [model, setModel] = useState(provider.model)
@@ -105,7 +138,7 @@ function ProviderCard({ provider, save, colors }: any) {
   const [loading, setLoading] = useState(false)
   async function loadModels() {
     setLoading(true)
-    const response = await window.zap.aiListModels(provider.id)
+    const response = await window.zap.aiListModels(accountId, provider.id)
     setLoading(false)
     if (response.success) setModels(response.models); else alert(response.error)
   }

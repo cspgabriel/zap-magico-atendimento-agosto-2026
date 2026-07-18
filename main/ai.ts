@@ -2,8 +2,10 @@ import { app, safeStorage } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { readKnowledgeContext, listKnowledge } from './knowledge'
+import { matchesAuthorizedAiIdentity, normalizeAiIdentity, normalizeAiIdentityList } from './ai-access'
 
 export type AiProvider = 'auto' | 'openrouter' | 'gemini' | 'openai' | 'deepseek'
+export type AiAssistantMode = 'service' | 'personal'
 
 type StoredConfig = {
   provider?: AiProvider
@@ -11,7 +13,11 @@ type StoredConfig = {
   keys?: Partial<Record<Exclude<AiProvider, 'auto'>, string>>
   systemPrompt?: string
   autoReply?: boolean
+  assistantMode?: AiAssistantMode
+  adminNumber?: string
+  authorizedNumbers?: string[]
 }
+type ConfigStore = StoredConfig & { accounts?: Record<string, StoredConfig> }
 
 const defaults = {
   openrouter: 'openai/gpt-4o-mini',
@@ -36,20 +42,27 @@ function readHermesEnv() {
   return result
 }
 
-function loadConfig(): StoredConfig {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(configPath(), 'utf8')) as StoredConfig
-    if (parsed.keys && safeStorage.isEncryptionAvailable()) {
-      for (const provider of Object.keys(parsed.keys) as Array<Exclude<AiProvider, 'auto'>>) {
-        const encrypted = parsed.keys[provider]
-        if (encrypted) parsed.keys[provider] = safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
-      }
+function decryptConfig(config: StoredConfig) {
+  const output: StoredConfig = { ...config, keys: { ...config.keys } }
+  if (output.keys && safeStorage.isEncryptionAvailable()) {
+    for (const provider of Object.keys(output.keys) as Array<Exclude<AiProvider, 'auto'>>) {
+      const encrypted = output.keys[provider]
+      if (encrypted) output.keys[provider] = safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
     }
+  }
+  return output
+}
+
+function loadStore(): ConfigStore {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath(), 'utf8')) as ConfigStore
+    Object.assign(parsed, decryptConfig(parsed))
+    if (parsed.accounts) for (const [id, config] of Object.entries(parsed.accounts)) parsed.accounts[id] = decryptConfig(config)
     return parsed
   } catch { return {} }
 }
 
-function saveConfig(config: StoredConfig) {
+function encryptConfig(config: StoredConfig) {
   const output: StoredConfig = { ...config, keys: { ...config.keys } }
   if (output.keys && safeStorage.isEncryptionAvailable()) {
     for (const provider of Object.keys(output.keys) as Array<Exclude<AiProvider, 'auto'>>) {
@@ -57,6 +70,24 @@ function saveConfig(config: StoredConfig) {
       if (key) output.keys[provider] = safeStorage.encryptString(key).toString('base64')
     }
   }
+  return output
+}
+
+function loadConfig(accountId = 'default'): StoredConfig {
+  const store = loadStore()
+  if (store.accounts?.[accountId]) return store.accounts[accountId]
+  if (accountId === 'default') {
+    const { accounts: _accounts, ...legacy } = store
+    return legacy
+  }
+  return {}
+}
+
+function saveConfig(accountId: string, config: StoredConfig) {
+  const store = loadStore()
+  store.accounts = { ...store.accounts, [accountId]: config }
+  const output: ConfigStore = { ...encryptConfig(store), accounts: {} }
+  for (const [id, item] of Object.entries(store.accounts)) output.accounts![id] = encryptConfig(item)
   fs.writeFileSync(configPath(), JSON.stringify(output, null, 2), 'utf8')
 }
 
@@ -97,16 +128,23 @@ async function geminiRequest(key: string, model: string, prompt: string) {
   return String(data.candidates?.[0]?.content?.parts?.[0]?.text || '').trim()
 }
 
-export function getAiConfig() {
-  const config = loadConfig()
+export function getAiConfig(accountId = 'default') {
+  const config = loadConfig(accountId)
   const providers = (['openrouter', 'gemini', 'openai', 'deepseek'] as const).map((id) => ({
     id, configured: Boolean(providerKey(id, config)), model: config.models?.[id] || defaults[id],
   }))
-  return { provider: config.provider || 'auto', providers, systemPrompt: config.systemPrompt || '', autoReply: config.autoReply ?? true, knowledge: listKnowledge() }
+  return {
+    provider: config.provider || 'auto', providers, systemPrompt: config.systemPrompt || '',
+    autoReply: config.autoReply ?? true,
+    assistantMode: config.assistantMode || 'service',
+    adminNumber: config.adminNumber || '',
+    authorizedNumbers: config.authorizedNumbers || [],
+    knowledge: listKnowledge(accountId),
+  }
 }
 
-export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean }) {
-  const config = loadConfig()
+export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[] }) {
+  const config = loadConfig(accountId)
   if (input.provider) config.provider = input.provider
   if (input.id) {
     config.models = { ...config.models, ...(input.model ? { [input.id]: input.model } : {}) }
@@ -114,16 +152,39 @@ export function updateAiConfig(input: { provider?: AiProvider; id?: Exclude<AiPr
   }
   if (input.systemPrompt !== undefined) config.systemPrompt = input.systemPrompt
   if (input.autoReply !== undefined) config.autoReply = input.autoReply
-  saveConfig(config)
-  return getAiConfig()
+  if (input.adminNumber !== undefined) config.adminNumber = normalizeAiIdentity(input.adminNumber)
+  if (input.authorizedNumbers !== undefined) config.authorizedNumbers = normalizeAiIdentityList(input.authorizedNumbers)
+  if (input.assistantMode !== undefined) {
+    if (!['service', 'personal'].includes(input.assistantMode)) throw new Error('Modo do assistente inválido.')
+    config.assistantMode = input.assistantMode
+  }
+  if ((config.assistantMode || 'service') === 'personal' && !config.adminNumber) {
+    throw new Error('Informe o número ADMIN antes de ativar o modo Assistente pessoal.')
+  }
+  saveConfig(accountId, config)
+  return getAiConfig(accountId)
 }
 
-export function isAutoReplyEnabled() {
-  return loadConfig().autoReply ?? true
+export function isAutoReplyEnabled(accountId = 'default') {
+  return loadConfig(accountId).autoReply ?? true
 }
 
-export async function listAiModels(provider: Exclude<AiProvider, 'auto'>) {
-  const config = loadConfig()
+export async function isAiSenderAuthorized(
+  accountId: string,
+  identities: string[],
+  resolvePhoneForLid?: (lidJid: string) => Promise<string | null>,
+) {
+  const config = loadConfig(accountId)
+  if ((config.assistantMode || 'service') === 'service') return true
+  return matchesAuthorizedAiIdentity(
+    [config.adminNumber || '', ...(config.authorizedNumbers || [])],
+    identities,
+    resolvePhoneForLid,
+  )
+}
+
+export async function listAiModels(provider: Exclude<AiProvider, 'auto'>, accountId = 'default') {
+  const config = loadConfig(accountId)
   const key = providerKey(provider, config)
   const endpoints = {
     openrouter: 'https://openrouter.ai/api/v1/models',
@@ -148,8 +209,9 @@ export async function listAiModels(provider: Exclude<AiProvider, 'auto'>) {
   }
 }
 
-export async function generateAi(input: { text: string; action?: string; provider?: AiProvider }) {
-  const config = loadConfig()
+export async function generateAi(input: { text: string; action?: string; provider?: AiProvider; accountId?: string }) {
+  const accountId = input.accountId || 'default'
+  const config = loadConfig(accountId)
   const selected = input.provider || config.provider || 'auto'
   const order: Array<Exclude<AiProvider, 'auto'>> = selected === 'auto'
     ? ['openrouter', 'gemini', 'openai', 'deepseek'] : [selected]
@@ -161,7 +223,7 @@ export async function generateAi(input: { text: string; action?: string; provide
     support: 'Reescreva em tom acolhedor, objetivo e profissional de atendimento ao cliente.',
     reply: 'Gere uma resposta de atendimento para a conversa abaixo. Seja humano, útil e objetivo. Não invente informações; quando faltar contexto, faça uma pergunta curta.',
   }
-  const knowledge = readKnowledgeContext()
+  const knowledge = readKnowledgeContext(accountId)
   const prompt = `${instructions[input.action || 'create'] || instructions.create}\nUse português do Brasil. Não invente preço, prazo, política ou característica. Se a base não trouxer a resposta, sinalize a dúvida ao atendente. Não explique o que fez. Entregue somente a mensagem final.\n\nInstruções da operação:\n${config.systemPrompt || 'Atenda com clareza, cordialidade e objetividade.'}\n\nBase local de conhecimento:\n${knowledge || '(nenhum arquivo cadastrado)'}\n\nConteúdo:\n${input.text}`
   const errors: string[] = []
   for (const provider of order) {

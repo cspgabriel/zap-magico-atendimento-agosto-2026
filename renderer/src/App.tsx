@@ -59,13 +59,13 @@ declare global {
       getDeals: (accountId?: string) => Promise<any[]>
       saveDeal: (deal: any) => Promise<any>
       deleteDeal: (id: string) => Promise<any>
-      aiGetConfig: () => Promise<any>
-      aiSaveConfig: (input: any) => Promise<any>
-      aiGenerate: (input: any) => Promise<any>
-      aiListModels: (provider: string) => Promise<any>
-      aiListKnowledge: () => Promise<any[]>
-      aiImportKnowledge: () => Promise<any>
-      aiDeleteKnowledge: (name: string) => Promise<any[]>
+      aiGetConfig: (accountId?: string) => Promise<any>
+      aiSaveConfig: (accountId: string, input: any) => Promise<any>
+      aiGenerate: (accountId: string, input: any) => Promise<any>
+      aiListModels: (accountId: string, provider: string) => Promise<any>
+      aiListKnowledge: (accountId?: string) => Promise<any[]>
+      aiImportKnowledge: (accountId?: string) => Promise<any>
+      aiDeleteKnowledge: (accountId: string, name: string) => Promise<any[]>
       openExternal: (url: string) => Promise<any>
       warmupPlans: () => Promise<any[]>
       warmupList: () => Promise<any[]>
@@ -245,7 +245,7 @@ function AppContent() {
     contacts: <Contacts />,
     templates: <Templates />,
     reports: <Reports />,
-    ai: <AiAssistant />,
+    ai: <AiAssistant accountId={accountId} />,
     warmup: <Warmup />,
     automations: <Automations accountId={accountId} accounts={accounts} />,
     pipeline: <Pipeline accountId={accountId} />,

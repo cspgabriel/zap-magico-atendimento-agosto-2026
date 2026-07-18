@@ -10,6 +10,15 @@ import { setWarmupWindow, getWarmupPlans, listWarmupTasks, getWarmupLogs, getWar
 
 let mainWindow: BrowserWindow | null = null
 let schedulerInterval: ReturnType<typeof setInterval> | null = null
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) app.quit()
+else app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -257,19 +266,19 @@ function registerIPC() {
     return { success: true }
   })
 
-  ipcMain.handle('ai:config:get', () => getAiConfig())
-  ipcMain.handle('ai:config:save', (_, input) => updateAiConfig(input))
-  ipcMain.handle('ai:generate', (_, input) => generateAi(input))
-  ipcMain.handle('ai:models', (_, provider) => listAiModels(provider))
-  ipcMain.handle('ai:knowledge:list', () => listKnowledge())
-  ipcMain.handle('ai:knowledge:import', async () => {
+  ipcMain.handle('ai:config:get', (_, accountId = 'default') => getAiConfig(accountId))
+  ipcMain.handle('ai:config:save', (_, accountId = 'default', input) => updateAiConfig(accountId, input))
+  ipcMain.handle('ai:generate', (_, accountId = 'default', input) => generateAi({ ...input, accountId }))
+  ipcMain.handle('ai:models', (_, accountId = 'default', provider) => listAiModels(provider, accountId))
+  ipcMain.handle('ai:knowledge:list', (_, accountId = 'default') => listKnowledge(accountId))
+  ipcMain.handle('ai:knowledge:import', async (_, accountId = 'default') => {
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Contexto IA', extensions: ['txt', 'md', 'csv', 'json'] }] })
     if (result.canceled) return { success: false }
     let files: any[] = []
-    for (const file of result.filePaths) { const imported = importKnowledge(file); if (!imported.success) return imported; files = imported.files || files }
+    for (const file of result.filePaths) { const imported = importKnowledge(file, accountId); if (!imported.success) return imported; files = imported.files || files }
     return { success: true, files }
   })
-  ipcMain.handle('ai:knowledge:delete', (_, name) => deleteKnowledge(name))
+  ipcMain.handle('ai:knowledge:delete', (_, accountId = 'default', name) => deleteKnowledge(name, accountId))
   ipcMain.handle('external:open', (_, url: string) => {
     if (!/^https:\/\//i.test(url)) throw new Error('URL externa inválida')
     return shell.openExternal(url)
@@ -353,7 +362,7 @@ function registerIPC() {
   ipcMain.handle('warmup:delete', (_, taskId: string) => deleteWarmupTask(taskId))
 }
 
-app.whenReady().then(async () => {
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   await getDb()
   registerIPC()
   createWindow()

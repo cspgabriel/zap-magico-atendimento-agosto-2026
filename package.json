@@ -1,6 +1,6 @@
 {
   "name": "zap-magico-wpp-web-qr",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Zap Mágico WPP Web QR - Central de atendimento WhatsApp via QR",
   "main": "dist/main/index.js",
   "scripts": {

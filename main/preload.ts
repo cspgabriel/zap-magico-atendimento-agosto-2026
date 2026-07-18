@@ -49,13 +49,13 @@ contextBridge.exposeInMainWorld('zap', {
   // Config
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (s: any) => ipcRenderer.invoke('settings:save', s),
-  aiGetConfig: () => ipcRenderer.invoke('ai:config:get'),
-  aiSaveConfig: (input: any) => ipcRenderer.invoke('ai:config:save', input),
-  aiGenerate: (input: any) => ipcRenderer.invoke('ai:generate', input),
-  aiListModels: (provider: string) => ipcRenderer.invoke('ai:models', provider),
-  aiListKnowledge: () => ipcRenderer.invoke('ai:knowledge:list'),
-  aiImportKnowledge: () => ipcRenderer.invoke('ai:knowledge:import'),
-  aiDeleteKnowledge: (name: string) => ipcRenderer.invoke('ai:knowledge:delete', name),
+  aiGetConfig: (accountId?: string) => ipcRenderer.invoke('ai:config:get', accountId),
+  aiSaveConfig: (accountId: string, input: any) => ipcRenderer.invoke('ai:config:save', accountId, input),
+  aiGenerate: (accountId: string, input: any) => ipcRenderer.invoke('ai:generate', accountId, input),
+  aiListModels: (accountId: string, provider: string) => ipcRenderer.invoke('ai:models', accountId, provider),
+  aiListKnowledge: (accountId?: string) => ipcRenderer.invoke('ai:knowledge:list', accountId),
+  aiImportKnowledge: (accountId?: string) => ipcRenderer.invoke('ai:knowledge:import', accountId),
+  aiDeleteKnowledge: (accountId: string, name: string) => ipcRenderer.invoke('ai:knowledge:delete', accountId, name),
   openExternal: (url: string) => ipcRenderer.invoke('external:open', url),
 
   // Caixa de Entrada
