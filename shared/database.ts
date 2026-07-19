@@ -245,6 +245,7 @@ function migrate(database: SqlJsDatabase) {
   if (!cols.includes('scheduled_at')) {
     database.run("ALTER TABLE campaigns ADD COLUMN scheduled_at TEXT")
   }
+  if (!cols.includes('account_id')) database.run("ALTER TABLE campaigns ADD COLUMN account_id TEXT DEFAULT 'default'")
 
   const row = database.exec("SELECT COUNT(*) as c FROM settings")
   const hasSettings = row.length > 0 && row[0].values.length > 0 && Number(row[0].values[0][0]) > 0

@@ -5,7 +5,7 @@ import { connectWA, disconnectWA, unlinkWA, restoreWA, sendMessage, massSend, se
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import { generateAi, getAiConfig, listAiModels, updateAiConfig } from './ai'
-import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listOpenRouterMediaModels } from './ai-media'
+import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listMediaModels, transcribeAudio } from './ai-media'
 import { deleteKnowledge, importKnowledge, listKnowledge } from './knowledge'
 import { setWarmupWindow, getWarmupPlans, listWarmupTasks, getWarmupLogs, getWarmupPairs, createWarmupTask, startWarmupTask, pauseWarmupTask, stopWarmupTask, resetWarmupTask, deleteWarmupTask } from './warmup'
 import { getAgentApiConfig, restartAgentApi, stopAgentApi, updateAgentApiConfig } from './agent-api'
@@ -169,9 +169,9 @@ function registerIPC() {
   })
 
   // Campaigns
-  ipcMain.handle('campaigns:list', async () => {
+  ipcMain.handle('campaigns:list', async (_, accountId = 'default') => {
     const db = await getDb()
-    return all(db, 'SELECT * FROM campaigns ORDER BY created_at DESC')
+    return all(db, 'SELECT * FROM campaigns WHERE account_id = ? ORDER BY created_at DESC', [accountId])
   })
   ipcMain.handle('campaigns:create', async (_, c: any) => {
     const db = await getDb()
@@ -181,9 +181,9 @@ function registerIPC() {
 
     const status = c.scheduled_at ? 'scheduled' : 'pending'
     run(db,
-      `INSERT INTO campaigns (id, name, template_id, total_contacts, delay_min, delay_max, pause_every, pause_duration, daily_limit, status, scheduled_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, c.name, c.templateId || null, c.contactIds.length,
+      `INSERT INTO campaigns (id, account_id, name, template_id, total_contacts, delay_min, delay_max, pause_every, pause_duration, daily_limit, status, scheduled_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, String(c.accountId || 'default'), c.name, c.templateId || null, c.contactIds.length,
        c.delay_min ?? 10, c.delay_max ?? 30, c.pause_every ?? 50, c.pause_duration ?? 60, c.daily_limit ?? 500,
        status, c.scheduled_at || null])
 
@@ -274,17 +274,18 @@ function registerIPC() {
   ipcMain.handle('ai:config:save', (_, accountId = 'default', input) => updateAiConfig(accountId, input))
   ipcMain.handle('ai:generate', (_, accountId = 'default', input) => generateAi({ ...input, accountId }))
   ipcMain.handle('ai:models', (_, accountId = 'default', provider) => listAiModels(provider, accountId))
-  ipcMain.handle('ai:media:models', (_, accountId = 'default', kind) => listOpenRouterMediaModels(kind, accountId))
+  ipcMain.handle('ai:media:models', (_, accountId = 'default', kind, provider) => listMediaModels(kind, accountId, provider))
   ipcMain.handle('ai:media:image', (_, accountId = 'default', prompt, overrides) => generateOpenRouterImage(accountId, String(prompt || ''), overrides || {}))
   ipcMain.handle('ai:media:speech', (_, accountId = 'default', text, overrides) => generateOpenRouterSpeech(accountId, String(text || ''), overrides || {}))
+  ipcMain.handle('ai:media:transcribe', (_, accountId = 'default', base64, format) => transcribeAudio(accountId, Buffer.from(String(base64 || ''), 'base64'), String(format || 'ogg')))
   ipcMain.handle('ai:media:usage', (_, accountId = 'default') => getAiMediaUsage(accountId))
   ipcMain.handle('ai:access:candidates', (_, accountId = 'default') => getAiAccessCandidates(accountId))
   ipcMain.handle('ai:knowledge:list', (_, accountId = 'default') => listKnowledge(accountId))
   ipcMain.handle('ai:knowledge:import', async (_, accountId = 'default') => {
-    const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Contexto IA', extensions: ['txt', 'md', 'csv', 'json'] }] })
+    const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Contexto IA', extensions: ['txt', 'md', 'csv', 'json', 'html', 'htm', 'pdf', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp', 'rtf', 'epub', 'png', 'jpg', 'jpeg', 'webp'] }] })
     if (result.canceled) return { success: false }
     let files: any[] = []
-    for (const file of result.filePaths) { const imported = importKnowledge(file, accountId); if (!imported.success) return imported; files = imported.files || files }
+    for (const file of result.filePaths) { const imported = await importKnowledge(file, accountId); if (!imported.success) return imported; files = imported.files || files }
     return { success: true, files }
   })
   ipcMain.handle('ai:knowledge:delete', (_, accountId = 'default', name) => deleteKnowledge(name, accountId))

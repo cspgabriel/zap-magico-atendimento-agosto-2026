@@ -5,7 +5,7 @@ import http from 'http'
 import path from 'path'
 import { all, getDb } from '../shared/database'
 import { generateAi } from './ai'
-import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listOpenRouterMediaModels } from './ai-media'
+import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listMediaModels, transcribeAudio } from './ai-media'
 import { getAiAccessCandidates, getConnectionStatus, sendMessage } from './whatsapp'
 
 type AgentApiConfig = { enabled: boolean; port: number; token: string }
@@ -88,8 +88,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       return json(res, 200, await getAiAccessCandidates(url.searchParams.get('accountId') || 'default'))
     }
     if (req.method === 'GET' && url.pathname === '/v1/ai/media-models') {
-      const kind = url.searchParams.get('kind') === 'voice' ? 'voice' : 'image'
-      return json(res, 200, await listOpenRouterMediaModels(kind, url.searchParams.get('accountId') || 'default'))
+      const rawKind = url.searchParams.get('kind')
+      const kind = rawKind === 'voice' || rawKind === 'transcription' ? rawKind : 'image'
+      return json(res, 200, await listMediaModels(kind, url.searchParams.get('accountId') || 'default'))
     }
     if (req.method === 'GET' && url.pathname === '/v1/ai/media-usage') {
       return json(res, 200, await getAiMediaUsage(url.searchParams.get('accountId') || 'default'))
@@ -113,6 +114,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const body = await readJson(req)
       if (!body.text) return json(res, 400, { success: false, error: 'Informe text.' })
       return json(res, 200, await generateOpenRouterSpeech(String(body.accountId || 'default'), String(body.text), body.options || {}))
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/ai/transcribe') {
+      const body = await readJson(req)
+      if (!body.base64) return json(res, 400, { success: false, error: 'Informe base64 e format.' })
+      return json(res, 200, await transcribeAudio(String(body.accountId || 'default'), Buffer.from(String(body.base64), 'base64'), String(body.format || 'ogg')))
     }
     return json(res, 404, { success: false, error: 'Endpoint não encontrado.' })
   } catch (error: any) {

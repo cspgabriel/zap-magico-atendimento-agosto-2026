@@ -5,7 +5,7 @@ import path from 'path'
 import { app, BrowserWindow, safeStorage } from 'electron'
 import fs from 'fs'
 import { generateAi, getAiMediaConfig, isAiGroupAuthorized, isAiIdentityExplicitlyAuthorized, isAiSenderAuthorized, isAutoReplyEnabled } from './ai'
-import { convertMp3ToWhatsAppOpus, detectAiMediaIntent, generateOpenRouterImage, generateOpenRouterSpeech } from './ai-media'
+import { convertMp3ToWhatsAppOpus, detectAiMediaIntent, generateOpenRouterImage, generateOpenRouterSpeech, transcribeAudio } from './ai-media'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
 const groupCache = new NodeCache({ stdTTL: 300 })
@@ -208,7 +208,14 @@ async function openConnection(accountId: string): Promise<void> {
       if (groupJid) {
         // A autorização é do grupo inteiro. ADMIN e números autorizados se aplicam somente a chats privados.
         if (!isAiGroupAuthorized(accountId, groupJid)) continue
-        const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
+        let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
+        if (!text && msg.message?.audioMessage && !msg.key.fromMe && getAiMediaConfig(accountId).transcriptionEnabled) {
+          try {
+            const audio = await baileys.downloadMediaMessage(msg, 'buffer', {}) as Buffer
+            const transcript = await transcribeAudio(accountId, audio, msg.message.audioMessage.mimetype?.includes('mpeg') ? 'mp3' : 'ogg')
+            if (transcript.success && transcript.text) text = `[Áudio transcrito] ${transcript.text}`
+          } catch {}
+        }
         if (!text) continue
         const conversationId = `group:${groupJid}`
         const db = await getDb()
@@ -238,7 +245,14 @@ async function openConnection(accountId: string): Promise<void> {
       const phone = phoneJid.endsWith('@lid')
         ? `lid:${phoneJid.replace('@lid', '')}`
         : phoneJid.replace('@s.whatsapp.net', '')
-      const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
+      let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
+      if (!text && msg.message?.audioMessage && !msg.key.fromMe && getAiMediaConfig(accountId).transcriptionEnabled) {
+        try {
+          const audio = await baileys.downloadMediaMessage(msg, 'buffer', {}) as Buffer
+          const transcript = await transcribeAudio(accountId, audio, msg.message.audioMessage.mimetype?.includes('mpeg') ? 'mp3' : 'ogg')
+          if (transcript.success && transcript.text) text = `[Áudio transcrito] ${transcript.text}`
+        } catch {}
+      }
       if (!phone || !text) continue
       try {
         const db = await getDb()
@@ -520,6 +534,7 @@ export async function massSend(campaignId: string, onProgress?: (s: number, f: n
   const db = await getDb()
   const camp = one(db, 'SELECT * FROM campaigns WHERE id = ?', [campaignId]) as any
   if (!camp) return { sent: 0, failed: 0, errors: [] }
+  const campaignAccountId = String(camp.account_id || 'default')
 
   const set = one(db, "SELECT value FROM settings WHERE key = 'daily_limit'") as any
   const dailyLimit = parseInt(set?.value || '500')
@@ -539,14 +554,14 @@ export async function massSend(campaignId: string, onProgress?: (s: number, f: n
     const m = msgs[i]
 
     const todayCount = one(db,
-      "SELECT COUNT(*) as c FROM send_log WHERE status = 'sent' AND date(sent_at) = date('now')") as any
+      "SELECT COUNT(*) as c FROM send_log WHERE account_id = ? AND status = 'sent' AND date(sent_at) = date('now')", [campaignAccountId]) as any
     if ((todayCount?.c || 0) >= dailyLimit) {
       run(db, "UPDATE campaigns SET status = 'paused' WHERE id = ?", [campaignId])
       notify('campaign:paused', { campaignId, reason: 'Limite diário' })
       return { sent, failed, errors }
     }
 
-    const r = await sendMessage(m.cphone, m.message)
+    const r = await sendMessage(m.cphone, m.message, campaignAccountId)
     if (r.success) {
       sent++
       run(db, "UPDATE campaign_messages SET status = 'sent', sent_at = datetime('now') WHERE id = ?", [m.id])

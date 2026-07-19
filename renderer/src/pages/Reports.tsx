@@ -1,19 +1,19 @@
 import React, { useEffect, useState } from 'react'
 import { useTheme } from '../theme'
 
-export default function Reports() {
+export default function Reports({ accountId = 'default' }: { accountId?: string }) {
   const [log, setLog] = useState<any[]>([])
   const [stats, setStats] = useState({ total: 0, today: 0, todaySent: 0, todayFailed: 0 })
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [days, setDays] = useState(7)
   const { colors } = useTheme()
 
-  useEffect(() => { load() }, [days])
+  useEffect(() => { load() }, [days, accountId])
 
   function load() {
     window.zap.getSendLog(days).then(setLog)
     window.zap.getStats().then(setStats)
-    window.zap.getCampaigns().then(setCampaigns)
+    window.zap.getCampaigns(accountId).then(setCampaigns)
   }
 
   function exportCSV() {

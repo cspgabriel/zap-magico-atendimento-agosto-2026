@@ -7,13 +7,15 @@ import Contacts from './pages/Contacts'
 import Templates from './pages/Templates'
 import Inbox from './pages/Inbox'
 import Reports from './pages/Reports'
+import Campaigns from './pages/Campaigns'
+import AgentInstall from './pages/AgentInstall'
 import Settings from './pages/Settings'
 import AiAssistant from './pages/AiAssistant'
 import Warmup from './pages/Warmup'
 import Automations from './pages/Automations'
 import Pipeline from './pages/Pipeline'
 import TitleBar from './components/TitleBar'
-import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Flame, Gauge, GitBranch, Link2Off, MessagesSquare, Plus, PlugZap, Send, Settings as SettingsIcon, Trash2, Unplug, UsersRound, Workflow, X } from 'lucide-react'
+import { Activity, BarChart3, BookOpenText, Bot, Cable, ContactRound, Flame, Gauge, GitBranch, Link2Off, Megaphone, MessagesSquare, Plus, PlugZap, Send, Settings as SettingsIcon, Trash2, Unplug, UsersRound, Workflow, X } from 'lucide-react'
 
 declare global {
   interface Window {
@@ -37,7 +39,7 @@ declare global {
       getTemplates: () => Promise<any[]>
       saveTemplate: (t: any) => Promise<any>
       deleteTemplate: (id: string) => Promise<any>
-      getCampaigns: () => Promise<any[]>
+      getCampaigns: (accountId?: string) => Promise<any[]>
       createCampaign: (c: any) => Promise<any>
       getCampaignMessages: (id: string) => Promise<any[]>
       updateCampaign: (c: any) => Promise<any>
@@ -62,9 +64,10 @@ declare global {
       aiSaveConfig: (accountId: string, input: any) => Promise<any>
       aiGenerate: (accountId: string, input: any) => Promise<any>
       aiListModels: (accountId: string, provider: string) => Promise<any>
-      aiListMediaModels: (accountId: string, kind: 'image' | 'voice') => Promise<any>
+      aiListMediaModels: (accountId: string, kind: 'image' | 'voice' | 'transcription', provider?: string) => Promise<any>
       aiGenerateImage: (accountId: string, prompt: string, overrides?: any) => Promise<any>
       aiGenerateSpeech: (accountId: string, text: string, overrides?: any) => Promise<any>
+      aiTranscribeAudio: (accountId: string, base64: string, format?: string) => Promise<any>
       aiMediaUsage: (accountId?: string) => Promise<any>
       aiAccessCandidates: (accountId?: string) => Promise<any>
       aiListKnowledge: (accountId?: string) => Promise<any[]>
@@ -88,10 +91,11 @@ declare global {
   }
 }
 
-type Page = 'dashboard' | 'send' | 'contacts' | 'templates' | 'inbox' | 'reports' | 'ai' | 'warmup' | 'automations' | 'pipeline' | 'settings'
+type Page = 'dashboard' | 'send' | 'campaigns' | 'contacts' | 'templates' | 'inbox' | 'reports' | 'agent-install' | 'ai' | 'warmup' | 'automations' | 'pipeline' | 'settings'
 
 function AppContent() {
   const [page, setPage] = useState<Page>(() => localStorage.getItem('zap-ai-guide-seen-v2') ? 'inbox' : 'ai')
+  const [sendTab, setSendTab] = useState<'direct' | 'campaign'>('direct')
   const [waConnected, setWaConnected] = useState(false)
   const [waPhone, setWaPhone] = useState('')
   const [qrCode, setQrCode] = useState('')
@@ -235,7 +239,9 @@ function AppContent() {
     { id: 'pipeline' as Page, label: 'Pipeline CRM', icon: GitBranch },
     { id: 'automations' as Page, label: 'Automações', icon: Workflow },
     { id: 'send' as Page, label: 'Central de envios', icon: Send, group: 'Envios' },
+    { id: 'campaigns' as Page, label: 'Campanhas', icon: Megaphone },
     { id: 'reports' as Page, label: 'Histórico de envios', icon: BarChart3 },
+    { id: 'agent-install' as Page, label: 'Instalar no agente IA', icon: Cable },
     { id: 'ai' as Page, label: 'Assistente IA', icon: Bot },
     { id: 'warmup' as Page, label: 'Aquecimento', icon: Flame },
     { id: 'dashboard' as Page, label: 'Saúde do atendimento', icon: Activity },
@@ -244,11 +250,13 @@ function AppContent() {
 
   const pages: Record<Page, React.ReactNode> = {
     dashboard: <Dashboard />,
-    send: <SendCenter accountId={accountId} />,
+    send: <SendCenter accountId={accountId} initialTab={sendTab} />,
+    campaigns: <Campaigns accountId={accountId} onNewCampaign={() => { setSendTab('campaign'); setPage('send') }} />,
     inbox: <Inbox accountId={accountId} />,
     contacts: <Contacts />,
     templates: <Templates />,
-    reports: <Reports />,
+    reports: <Reports accountId={accountId} />,
+    'agent-install': <AgentInstall accountId={accountId} />,
     ai: <AiAssistant accountId={accountId} />,
     warmup: <Warmup />,
     automations: <Automations accountId={accountId} accounts={accounts} />,
@@ -314,7 +322,7 @@ function AppContent() {
           return (
           <React.Fragment key={n.id}>
             {n.group && <div className="nav-group-label">{n.group}</div>}
-            <button onClick={() => setPage(n.id)} className={`nav-item ${page === n.id ? 'active' : ''}`} style={{ color: page === n.id ? colors.text : colors.textMuted }}>
+            <button onClick={() => { if (n.id === 'send') setSendTab('direct'); setPage(n.id) }} className={`nav-item ${page === n.id ? 'active' : ''}`} style={{ color: page === n.id ? colors.text : colors.textMuted }}>
               <Icon size={18} strokeWidth={1.8} /><span>{n.label}</span>{!!n.badge && <b>{n.badge}</b>}
             </button>
           </React.Fragment>

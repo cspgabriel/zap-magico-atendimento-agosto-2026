@@ -9,6 +9,8 @@ export type AiAssistantMode = 'service' | 'personal'
 export type AiResponseLength = 'auto' | 'short' | 'medium' | 'long'
 export type AiVoiceReplyMode = 'request' | 'always'
 export type AiGroupMediaAccess = 'everyone' | 'authorized'
+export type AiMediaProvider = 'openrouter' | 'openai'
+export type AiMediaCredentialKind = 'image' | 'voice' | 'transcription'
 
 type StoredConfig = {
   provider?: AiProvider
@@ -28,6 +30,10 @@ type StoredConfig = {
   imageResolution?: string
   imageQuality?: 'auto' | 'low' | 'medium' | 'high'
   imageDailyLimit?: number
+  imageUseKnowledgeReferences?: boolean
+  imageInstructions?: string
+  imageProvider?: AiMediaProvider
+  imageUseTextKey?: boolean
   voiceEnabled?: boolean
   voiceReplyMode?: AiVoiceReplyMode
   voiceModel?: string
@@ -35,6 +41,14 @@ type StoredConfig = {
   voiceSpeed?: number
   voiceDailyLimit?: number
   mediaGroupAccess?: AiGroupMediaAccess
+  voiceProvider?: AiMediaProvider
+  voiceUseTextKey?: boolean
+  transcriptionEnabled?: boolean
+  transcriptionProvider?: AiMediaProvider
+  transcriptionUseTextKey?: boolean
+  transcriptionModel?: string
+  transcriptionLanguage?: string
+  mediaKeys?: Partial<Record<AiMediaCredentialKind, string>>
 }
 type ConfigStore = StoredConfig & { accounts?: Record<string, StoredConfig> }
 
@@ -62,12 +76,16 @@ function readHermesEnv() {
 }
 
 function decryptConfig(config: StoredConfig) {
-  const output: StoredConfig = { ...config, keys: { ...config.keys } }
+  const output: StoredConfig = { ...config, keys: { ...config.keys }, mediaKeys: { ...config.mediaKeys } }
   if (output.keys && safeStorage.isEncryptionAvailable()) {
     for (const provider of Object.keys(output.keys) as Array<Exclude<AiProvider, 'auto'>>) {
       const encrypted = output.keys[provider]
       if (encrypted) output.keys[provider] = safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
     }
+  }
+  if (output.mediaKeys && safeStorage.isEncryptionAvailable()) for (const kind of Object.keys(output.mediaKeys) as AiMediaCredentialKind[]) {
+    const encrypted = output.mediaKeys[kind]
+    if (encrypted) output.mediaKeys[kind] = safeStorage.decryptString(Buffer.from(encrypted, 'base64'))
   }
   return output
 }
@@ -82,12 +100,16 @@ function loadStore(): ConfigStore {
 }
 
 function encryptConfig(config: StoredConfig) {
-  const output: StoredConfig = { ...config, keys: { ...config.keys } }
+  const output: StoredConfig = { ...config, keys: { ...config.keys }, mediaKeys: { ...config.mediaKeys } }
   if (output.keys && safeStorage.isEncryptionAvailable()) {
     for (const provider of Object.keys(output.keys) as Array<Exclude<AiProvider, 'auto'>>) {
       const key = output.keys[provider]
       if (key) output.keys[provider] = safeStorage.encryptString(key).toString('base64')
     }
+  }
+  if (output.mediaKeys && safeStorage.isEncryptionAvailable()) for (const kind of Object.keys(output.mediaKeys) as AiMediaCredentialKind[]) {
+    const key = output.mediaKeys[kind]
+    if (key) output.mediaKeys[kind] = safeStorage.encryptString(key).toString('base64')
   }
   return output
 }
@@ -125,6 +147,12 @@ export function providerKeyForAccount(provider: Exclude<AiProvider, 'auto'>, acc
   return providerKey(provider, loadConfig(accountId))
 }
 
+export function mediaProviderKey(accountId: string, kind: AiMediaCredentialKind, provider: AiMediaProvider) {
+  const config = loadConfig(accountId)
+  const useTextKey = config[`${kind}UseTextKey` as keyof StoredConfig] !== false
+  return useTextKey ? providerKey(provider, config) : String(config.mediaKeys?.[kind] || '')
+}
+
 export function getAiMediaConfig(accountId = 'default') {
   const config = loadConfig(accountId)
   return {
@@ -134,6 +162,11 @@ export function getAiMediaConfig(accountId = 'default') {
     imageResolution: config.imageResolution || '1K',
     imageQuality: config.imageQuality || 'auto',
     imageDailyLimit: config.imageDailyLimit ?? 5,
+    imageUseKnowledgeReferences: config.imageUseKnowledgeReferences ?? true,
+    imageInstructions: config.imageInstructions || '',
+    imageProvider: config.imageProvider || 'openrouter',
+    imageUseTextKey: config.imageUseTextKey ?? true,
+    imageHasDedicatedKey: Boolean(config.mediaKeys?.image),
     voiceEnabled: config.voiceEnabled ?? false,
     voiceReplyMode: config.voiceReplyMode || 'request',
     voiceModel: config.voiceModel || 'google/gemini-3.1-flash-tts-preview',
@@ -141,6 +174,15 @@ export function getAiMediaConfig(accountId = 'default') {
     voiceSpeed: config.voiceSpeed ?? 1,
     voiceDailyLimit: config.voiceDailyLimit ?? 20,
     mediaGroupAccess: config.mediaGroupAccess || 'everyone',
+    voiceProvider: config.voiceProvider || 'openrouter',
+    voiceUseTextKey: config.voiceUseTextKey ?? true,
+    voiceHasDedicatedKey: Boolean(config.mediaKeys?.voice),
+    transcriptionEnabled: config.transcriptionEnabled ?? false,
+    transcriptionProvider: config.transcriptionProvider || 'openrouter',
+    transcriptionUseTextKey: config.transcriptionUseTextKey ?? true,
+    transcriptionHasDedicatedKey: Boolean(config.mediaKeys?.transcription),
+    transcriptionModel: config.transcriptionModel || 'openai/gpt-4o-mini-transcribe',
+    transcriptionLanguage: config.transcriptionLanguage || 'pt',
   }
 }
 
@@ -189,7 +231,7 @@ export function getAiConfig(accountId = 'default') {
   }
 }
 
-export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength; imageEnabled?: boolean; imageModel?: string; imageAspectRatio?: string; imageResolution?: string; imageQuality?: 'auto' | 'low' | 'medium' | 'high'; imageDailyLimit?: number; voiceEnabled?: boolean; voiceReplyMode?: AiVoiceReplyMode; voiceModel?: string; voiceName?: string; voiceSpeed?: number; voiceDailyLimit?: number; mediaGroupAccess?: AiGroupMediaAccess }) {
+export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength; imageEnabled?: boolean; imageModel?: string; imageAspectRatio?: string; imageResolution?: string; imageQuality?: 'auto' | 'low' | 'medium' | 'high'; imageDailyLimit?: number; imageUseKnowledgeReferences?: boolean; imageInstructions?: string; imageProvider?: AiMediaProvider; imageUseTextKey?: boolean; voiceEnabled?: boolean; voiceReplyMode?: AiVoiceReplyMode; voiceModel?: string; voiceName?: string; voiceSpeed?: number; voiceDailyLimit?: number; voiceProvider?: AiMediaProvider; voiceUseTextKey?: boolean; transcriptionEnabled?: boolean; transcriptionProvider?: AiMediaProvider; transcriptionUseTextKey?: boolean; transcriptionModel?: string; transcriptionLanguage?: string; mediaKeyKind?: AiMediaCredentialKind; mediaKey?: string; mediaGroupAccess?: AiGroupMediaAccess }) {
   const config = loadConfig(accountId)
   if (input.provider) config.provider = input.provider
   if (input.id) {
@@ -215,6 +257,10 @@ export function updateAiConfig(accountId: string, input: { provider?: AiProvider
     config.imageQuality = input.imageQuality
   }
   if (input.imageDailyLimit !== undefined) config.imageDailyLimit = Math.min(500, Math.max(1, Math.floor(Number(input.imageDailyLimit) || 1)))
+  if (input.imageUseKnowledgeReferences !== undefined) config.imageUseKnowledgeReferences = Boolean(input.imageUseKnowledgeReferences)
+  if (input.imageInstructions !== undefined) config.imageInstructions = String(input.imageInstructions).trim()
+  if (input.imageProvider !== undefined) config.imageProvider = input.imageProvider
+  if (input.imageUseTextKey !== undefined) config.imageUseTextKey = Boolean(input.imageUseTextKey)
   if (input.voiceEnabled !== undefined) config.voiceEnabled = Boolean(input.voiceEnabled)
   if (input.voiceReplyMode !== undefined) {
     if (!['request', 'always'].includes(input.voiceReplyMode)) throw new Error('Modo de resposta por voz inválido.')
@@ -224,6 +270,14 @@ export function updateAiConfig(accountId: string, input: { provider?: AiProvider
   if (input.voiceName !== undefined) config.voiceName = String(input.voiceName).trim() || 'Kore'
   if (input.voiceSpeed !== undefined) config.voiceSpeed = Math.min(2, Math.max(0.5, Number(input.voiceSpeed) || 1))
   if (input.voiceDailyLimit !== undefined) config.voiceDailyLimit = Math.min(500, Math.max(1, Math.floor(Number(input.voiceDailyLimit) || 1)))
+  if (input.voiceProvider !== undefined) config.voiceProvider = input.voiceProvider
+  if (input.voiceUseTextKey !== undefined) config.voiceUseTextKey = Boolean(input.voiceUseTextKey)
+  if (input.transcriptionEnabled !== undefined) config.transcriptionEnabled = Boolean(input.transcriptionEnabled)
+  if (input.transcriptionProvider !== undefined) config.transcriptionProvider = input.transcriptionProvider
+  if (input.transcriptionUseTextKey !== undefined) config.transcriptionUseTextKey = Boolean(input.transcriptionUseTextKey)
+  if (input.transcriptionModel !== undefined) config.transcriptionModel = String(input.transcriptionModel).trim()
+  if (input.transcriptionLanguage !== undefined) config.transcriptionLanguage = String(input.transcriptionLanguage).trim() || 'pt'
+  if (input.mediaKeyKind && input.mediaKey !== undefined) config.mediaKeys = { ...config.mediaKeys, [input.mediaKeyKind]: input.mediaKey.trim() }
   if (input.mediaGroupAccess !== undefined) {
     if (!['everyone', 'authorized'].includes(input.mediaGroupAccess)) throw new Error('Permissão de mídia em grupos inválida.')
     config.mediaGroupAccess = input.mediaGroupAccess

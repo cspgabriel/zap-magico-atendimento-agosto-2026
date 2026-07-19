@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('zap', {
   deleteTemplate: (id: string) => ipcRenderer.invoke('templates:delete', id),
 
   // Campanhas
-  getCampaigns: () => ipcRenderer.invoke('campaigns:list'),
+  getCampaigns: (accountId?: string) => ipcRenderer.invoke('campaigns:list', accountId),
   createCampaign: (c: any) => ipcRenderer.invoke('campaigns:create', c),
   getCampaignMessages: (id: string) => ipcRenderer.invoke('campaigns:messages', id),
   updateCampaign: (c: any) => ipcRenderer.invoke('campaigns:update', c),
@@ -53,9 +53,10 @@ contextBridge.exposeInMainWorld('zap', {
   aiSaveConfig: (accountId: string, input: any) => ipcRenderer.invoke('ai:config:save', accountId, input),
   aiGenerate: (accountId: string, input: any) => ipcRenderer.invoke('ai:generate', accountId, input),
   aiListModels: (accountId: string, provider: string) => ipcRenderer.invoke('ai:models', accountId, provider),
-  aiListMediaModels: (accountId: string, kind: 'image' | 'voice') => ipcRenderer.invoke('ai:media:models', accountId, kind),
+  aiListMediaModels: (accountId: string, kind: 'image' | 'voice' | 'transcription', provider?: string) => ipcRenderer.invoke('ai:media:models', accountId, kind, provider),
   aiGenerateImage: (accountId: string, prompt: string, overrides?: any) => ipcRenderer.invoke('ai:media:image', accountId, prompt, overrides),
   aiGenerateSpeech: (accountId: string, text: string, overrides?: any) => ipcRenderer.invoke('ai:media:speech', accountId, text, overrides),
+  aiTranscribeAudio: (accountId: string, base64: string, format?: string) => ipcRenderer.invoke('ai:media:transcribe', accountId, base64, format),
   aiMediaUsage: (accountId?: string) => ipcRenderer.invoke('ai:media:usage', accountId),
   aiAccessCandidates: (accountId?: string) => ipcRenderer.invoke('ai:access:candidates', accountId),
   aiListKnowledge: (accountId?: string) => ipcRenderer.invoke('ai:knowledge:list', accountId),

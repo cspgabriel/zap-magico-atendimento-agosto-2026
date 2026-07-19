@@ -17,6 +17,10 @@ button, input, textarea, select { font: inherit; }
 .account-switcher { display: grid; grid-template-columns: 1fr 34px; gap: 6px; margin: 0 2px 7px; }
 .account-switcher select, .account-switcher button { min-width: 0; height: 34px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.035); color: inherit; font-size: 10px; }
 .account-switcher select { padding: 0 8px; }
+.app-shell.dark .account-switcher select { color-scheme: dark; background-color: #101018; color: #f2f2f7; }
+.app-shell.dark .account-switcher select option { background: #171720; color: #f2f2f7; }
+.app-shell.light .account-switcher select { color-scheme: light; color: #102a2b; }
+.app-shell.light .account-switcher select option { background: #fff; color: #102a2b; }
 .account-switcher button { cursor: pointer; color: #00ff88; font-size: 19px; }
 .app-shell.light .account-switcher select, .app-shell.light .account-switcher button { background: #fff; border-color: #dfe5e8; }
 .account-modal-backdrop { position: fixed; z-index: 1200; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(3,10,8,.68); backdrop-filter: blur(8px); }

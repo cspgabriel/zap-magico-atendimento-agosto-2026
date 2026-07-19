@@ -4,7 +4,7 @@ import { useTheme } from '../theme'
 import LimitRecommendations from '../components/LimitRecommendations'
 import AiMessageTools from '../components/AiMessageTools'
 
-export default function MassSend({ embedded = false, composeOnly = false }: { embedded?: boolean; composeOnly?: boolean }) {
+export default function MassSend({ accountId = 'default', embedded = false, composeOnly = false }: { accountId?: string; embedded?: boolean; composeOnly?: boolean }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
@@ -19,14 +19,14 @@ export default function MassSend({ embedded = false, composeOnly = false }: { em
   const [tab, setTab] = useState<'new' | 'scheduled' | 'history'>('new')
   const { colors } = useTheme()
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [accountId])
   useEffect(() => {
     const unsub = window.zap.on('campaign:progress', (d) => setProgress(d))
     return unsub
   }, [])
 
   async function load() {
-    setCampaigns(await window.zap.getCampaigns())
+    setCampaigns(await window.zap.getCampaigns(accountId))
     setContacts(await window.zap.getContacts())
     setTemplates(await window.zap.getTemplates())
   }
@@ -39,6 +39,7 @@ export default function MassSend({ embedded = false, composeOnly = false }: { em
   async function handleSave() {
     const payload: any = {
       name: campName,
+      accountId,
       message,
       contactIds: selectedIds,
       templateId: templateId || undefined,

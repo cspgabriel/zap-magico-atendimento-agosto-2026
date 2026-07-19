@@ -75,13 +75,13 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType>({ mode: 'light', colors: light, setMode: () => {} })
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setModeState] = useState<'dark' | 'light'>('light')
+  const [mode, setModeState] = useState<'dark' | 'light'>('dark')
 
   useEffect(() => {
     window.zap.getSettings().then((s) => {
-      if (s.lightThemeDefaultV1 !== 'applied') {
-        setModeState('light')
-        window.zap.saveSettings({ theme: 'light', lightThemeDefaultV1: 'applied' })
+      if (s.darkThemeDefaultV142 !== 'applied') {
+        setModeState('dark')
+        window.zap.saveSettings({ theme: 'dark', darkThemeDefaultV142: 'applied' })
         return
       }
       if (s.theme === 'light' || s.theme === 'dark') setModeState(s.theme)

@@ -23,12 +23,18 @@ Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox,
 - IA opcional em grupos escolhidos: qualquer participante do grupo autorizado pode acionar a resposta; ADMIN e autorizados restringem somente chats privados.
 - No contexto de grupo, cada participante mantém identidade própria e a IA responde abertamente à conversa mais recente sem assumir que todos são o ADMIN.
 - Tamanho de saída automático, curto (350), médio (700) ou longo (1.400 caracteres).
-- Geração de imagens pelo OpenRouter e envio como foto real no WhatsApp (`/foto` ou `/imagem`).
-- Voz TTS configurável pelo OpenRouter, convertida para áudio PTT compatível com WhatsApp (`/audio` ou `/voz`).
-- Painel por conta para pesquisar modelos de imagem/voz, filtrar grátis/pago, escolher voz, velocidade, formato, resolução, qualidade e modo de resposta.
+- Imagem→imagem por OpenRouter ou OpenAI, usando fotos do teste e referências permanentes salvas nas instruções (`/foto` ou `/imagem`).
+- Voz TTS por OpenRouter ou OpenAI, convertida para áudio PTT compatível com WhatsApp (`/audio` ou `/voz`).
+- Chaves independentes para foto, voz e transcrição, com opção de reutilizar a chave do provedor de texto.
+- Catálogos completos carregados dos provedores, pesquisa, ordenação por preço, filtro pt-BR e lista de vozes femininas/masculinas quando o modelo publica o gênero.
+- Transcrição opcional dos áudios recebidos para o assistente ouvir e responder ao conteúdo.
+- Base de conhecimento com múltiplas fotos, PDF, DOCX, XLSX, PPTX, OpenDocument, RTF, EPUB, HTML, TXT, MD, CSV e JSON.
 - Limites diários separados para imagens e áudios, com uso registrado no SQL e permissão específica de mídia em grupos.
 - Central de envios unificada e página separada de histórico operacional.
+- Dashboard de Campanhas por conta, com indicadores, busca, filtros, status e detalhe integral da mensagem/destinatários.
 - API local autenticada para agentes, n8n e integrações externas.
+- Página “Instalar no agente IA” com ativação da ponte, cURL, prompt pronto, token protegido e regeneração segura.
+- Tema escuro como padrão, com switch Claro/Escuro sempre visível no topo.
 - Conexao WhatsApp Web por QR Code usando Baileys.
 - Banco, configuracoes, documentos e sessao armazenados localmente.
 
@@ -40,7 +46,7 @@ Chaves sao armazenadas criptografadas pelo Electron `safeStorage` e nunca devem 
 
 ## API local para agentes
 
-Ative em `Configurações > API local para agentes`. O serviço escuta apenas em `127.0.0.1` e exige `Authorization: Bearer SEU_TOKEN` (exceto `/v1/health`).
+Ative em `Instalar no agente IA`. O serviço escuta apenas em `127.0.0.1` e exige `Authorization: Bearer SEU_TOKEN` (exceto `/v1/health`).
 
 - `GET /v1/health`
 - `GET /v1/accounts`
@@ -49,10 +55,11 @@ Ative em `Configurações > API local para agentes`. O serviço escuta apenas em
 - `GET /v1/ai/access-candidates?accountId=default`
 - `POST /v1/messages/send` com `accountId`, `to` e `message`
 - `POST /v1/ai/generate` com `accountId`, `text`, `action` e `provider` opcionais
-- `GET /v1/ai/media-models?kind=image|voice&accountId=default`
+- `GET /v1/ai/media-models?kind=image|voice|transcription&accountId=default`
 - `GET /v1/ai/media-usage?accountId=default`
 - `POST /v1/ai/image` com `accountId`, `prompt` e `options` opcionais
 - `POST /v1/ai/speech` com `accountId`, `text` e `options` opcionais
+- `POST /v1/ai/transcribe` com `accountId`, áudio em `base64` e `format`
 
 ## Build
 

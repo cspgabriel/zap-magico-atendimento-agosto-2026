@@ -15,6 +15,7 @@
     "ffmpeg-static": "^5.2.0",
     "lucide-react": "^0.468.0",
     "node-cache": "^5.1.2",
+    "officeparser": "^7.3.0",
     "pino": "^9.0.0",
     "qrcode": "^1.5.4",
     "sql.js": "^1.11.0",
