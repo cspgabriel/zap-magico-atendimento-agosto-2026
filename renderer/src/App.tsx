@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { toDataURL } from 'qrcode'
 import { ThemeProvider, useTheme } from './theme'
 import Dashboard from './pages/Dashboard'
-import SendMessage from './pages/SendMessage'
-import MassSend from './pages/MassSend'
+import SendCenter from './pages/SendCenter'
 import Contacts from './pages/Contacts'
 import Templates from './pages/Templates'
 import Inbox from './pages/Inbox'
@@ -14,7 +13,7 @@ import Warmup from './pages/Warmup'
 import Automations from './pages/Automations'
 import Pipeline from './pages/Pipeline'
 import TitleBar from './components/TitleBar'
-import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Flame, Gauge, GitBranch, Link2Off, MessageCircleMore, MessagesSquare, Plus, PlugZap, Send, Settings as SettingsIcon, Trash2, Unplug, UsersRound, Workflow, X } from 'lucide-react'
+import { Activity, BarChart3, BookOpenText, Bot, ContactRound, Flame, Gauge, GitBranch, Link2Off, MessagesSquare, Plus, PlugZap, Send, Settings as SettingsIcon, Trash2, Unplug, UsersRound, Workflow, X } from 'lucide-react'
 
 declare global {
   interface Window {
@@ -63,9 +62,12 @@ declare global {
       aiSaveConfig: (accountId: string, input: any) => Promise<any>
       aiGenerate: (accountId: string, input: any) => Promise<any>
       aiListModels: (accountId: string, provider: string) => Promise<any>
+      aiAccessCandidates: (accountId?: string) => Promise<any>
       aiListKnowledge: (accountId?: string) => Promise<any[]>
       aiImportKnowledge: (accountId?: string) => Promise<any>
       aiDeleteKnowledge: (accountId: string, name: string) => Promise<any[]>
+      agentApiGetConfig: () => Promise<any>
+      agentApiSaveConfig: (input: any) => Promise<any>
       openExternal: (url: string) => Promise<any>
       warmupPlans: () => Promise<any[]>
       warmupList: () => Promise<any[]>
@@ -82,7 +84,7 @@ declare global {
   }
 }
 
-type Page = 'dashboard' | 'send' | 'mass' | 'contacts' | 'templates' | 'inbox' | 'reports' | 'ai' | 'warmup' | 'automations' | 'pipeline' | 'settings'
+type Page = 'dashboard' | 'send' | 'contacts' | 'templates' | 'inbox' | 'reports' | 'ai' | 'warmup' | 'automations' | 'pipeline' | 'settings'
 
 function AppContent() {
   const [page, setPage] = useState<Page>(() => localStorage.getItem('zap-ai-guide-seen-v2') ? 'inbox' : 'ai')
@@ -129,7 +131,7 @@ function AppContent() {
       if ((data.accountId || 'default') === accountId) window.zap.getUnreadCount(accountId).then(setUnread)
     })
     const unsub4 = window.zap.on('ai:auto-reply', (data) => {
-      const text = data.success ? 'Resposta automática enviada no privado.' : `IA não respondeu: ${data.error || 'verifique a configuração.'}`
+      const text = data.success ? 'Resposta automática enviada.' : `IA não respondeu: ${data.error || 'verifique a configuração.'}`
       setAiNotice({ success: Boolean(data.success), text })
       window.setTimeout(() => setAiNotice(null), 6000)
     })
@@ -228,9 +230,8 @@ function AppContent() {
     { id: 'templates' as Page, label: 'Respostas prontas', icon: BookOpenText },
     { id: 'pipeline' as Page, label: 'Pipeline CRM', icon: GitBranch },
     { id: 'automations' as Page, label: 'Automações', icon: Workflow },
-    { id: 'send' as Page, label: 'Mensagem direta', icon: Send, group: 'Envios' },
-    { id: 'mass' as Page, label: 'Campanhas moderadas', icon: MessageCircleMore },
-    { id: 'reports' as Page, label: 'Relatórios', icon: BarChart3, group: 'Gestão' },
+    { id: 'send' as Page, label: 'Central de envios', icon: Send, group: 'Envios' },
+    { id: 'reports' as Page, label: 'Histórico de envios', icon: BarChart3 },
     { id: 'ai' as Page, label: 'Assistente IA', icon: Bot },
     { id: 'warmup' as Page, label: 'Aquecimento', icon: Flame },
     { id: 'dashboard' as Page, label: 'Saúde do atendimento', icon: Activity },
@@ -239,8 +240,7 @@ function AppContent() {
 
   const pages: Record<Page, React.ReactNode> = {
     dashboard: <Dashboard />,
-    send: <SendMessage />,
-    mass: <MassSend />,
+    send: <SendCenter accountId={accountId} />,
     inbox: <Inbox accountId={accountId} />,
     contacts: <Contacts />,
     templates: <Templates />,

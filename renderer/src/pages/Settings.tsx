@@ -3,14 +3,22 @@ import { useTheme } from '../theme'
 
 export default function Settings() {
   const [settings, setSettings] = useState<Record<string, string>>({})
+  const [agentApi, setAgentApi] = useState<any>(null)
+  const [showToken, setShowToken] = useState(false)
+  const [apiBusy, setApiBusy] = useState(false)
   const { colors, mode, setMode } = useTheme()
 
-  useEffect(() => { window.zap.getSettings().then(setSettings) }, [])
+  useEffect(() => { window.zap.getSettings().then(setSettings); window.zap.agentApiGetConfig().then(setAgentApi) }, [])
 
   function update(key: string, value: string) {
     const s = { ...settings, [key]: value }
     setSettings(s)
     window.zap.saveSettings({ [key]: value })
+  }
+  async function saveApi(input: any) {
+    setApiBusy(true)
+    try { setAgentApi(await window.zap.agentApiSaveConfig(input)) } catch (error: any) { alert(error?.message || 'Falha ao configurar API.') }
+    setApiBusy(false)
   }
 
   const fields = [
@@ -51,6 +59,13 @@ export default function Settings() {
           </ul>
         </div>
       </div>
+
+      {agentApi && <div style={{ background: colors.surface, borderRadius: 8, padding: 24, maxWidth: 760, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><div><h3 style={{ fontSize: 15, fontWeight: 600, margin: 0, color: colors.accent }}>API local para agentes</h3><p style={{ color: colors.textMuted, fontSize: 11, margin: '4px 0 0' }}>Conecte agentes, n8n e scripts à conta WhatsApp ativa via endpoints autenticados.</p></div><button disabled={apiBusy} onClick={() => void saveApi({ enabled: !agentApi.enabled, port: agentApi.port })} style={{ marginLeft: 'auto', padding: '8px 12px', border: 0, background: agentApi.enabled ? colors.danger : colors.accent, color: agentApi.enabled ? '#fff' : '#07120a', fontWeight: 700, cursor: 'pointer' }}>{agentApi.enabled ? 'Desativar API' : 'Ativar API'}</button></div>
+        <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 10, marginTop: 15 }}><label style={{ color: colors.textMuted, fontSize: 11 }}>Porta local<input type="number" min={1024} max={65535} value={agentApi.port} onChange={e => setAgentApi({ ...agentApi, port: Number(e.target.value) })} onBlur={() => void saveApi({ enabled: agentApi.enabled, port: agentApi.port })} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} /></label><label style={{ color: colors.textMuted, fontSize: 11 }}>Base URL<input readOnly value={agentApi.baseUrl} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} /></label></div>
+        <label style={{ display: 'block', color: colors.textMuted, fontSize: 11, marginTop: 10 }}>Bearer token<div style={{ display: 'flex', gap: 6, marginTop: 4 }}><input readOnly type={showToken ? 'text' : 'password'} value={agentApi.token} style={{ minWidth: 0, flex: 1, padding: 8, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} /><button onClick={() => setShowToken(!showToken)} style={{ border: `1px solid ${colors.border}`, background: colors.surface2, color: colors.text, padding: '0 10px', cursor: 'pointer' }}>{showToken ? 'Ocultar' : 'Mostrar'}</button><button onClick={() => navigator.clipboard.writeText(agentApi.token)} style={{ border: `1px solid ${colors.border}`, background: colors.surface2, color: colors.text, padding: '0 10px', cursor: 'pointer' }}>Copiar</button><button onClick={() => confirm('Gerar novo token? Integrações com o token atual deixarão de funcionar.') && void saveApi({ regenerateToken: true, enabled: agentApi.enabled, port: agentApi.port })} style={{ border: `1px solid ${colors.danger}`, background: 'transparent', color: colors.danger, padding: '0 10px', cursor: 'pointer' }}>Gerar novo</button></div></label>
+        <div style={{ marginTop: 12, padding: 11, background: agentApi.error ? colors.errorBg : colors.surface2, color: agentApi.error ? colors.danger : colors.textMuted, fontSize: 11 }}><strong>{agentApi.running ? '● API ativa' : agentApi.enabled ? '● API não iniciou' : '○ API desativada'}</strong>{agentApi.error ? ` · ${agentApi.error}` : ' · disponível somente em 127.0.0.1'}<br /><code>GET /health · GET /accounts · GET /inbox · POST /messages/send · POST /ai/generate</code></div>
+      </div>}
 
       <div style={{ background: colors.surface, borderRadius: 8, padding: 24, maxWidth: 500 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16, color: colors.accent }}>Aparência</h3>

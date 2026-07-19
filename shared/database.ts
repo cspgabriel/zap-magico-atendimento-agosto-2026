@@ -25,6 +25,15 @@ function migrate(database: SqlJsDatabase) {
       PRIMARY KEY (account_id, file_name)
     )`)
   database.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_groups (
+      account_id TEXT NOT NULL,
+      jid TEXT NOT NULL,
+      subject TEXT NOT NULL DEFAULT '',
+      participant_count INTEGER DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, jid)
+    )`)
+  database.run(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

@@ -4,7 +4,7 @@ import { useTheme } from '../theme'
 import LimitRecommendations from '../components/LimitRecommendations'
 import AiMessageTools from '../components/AiMessageTools'
 
-export default function SendMessage() {
+export default function SendMessage({ accountId = 'default', embedded = false }: { accountId?: string; embedded?: boolean }) {
   const [phone, setPhone] = useState('')
   const [message, setMessage] = useState('')
   const [result, setResult] = useState<{ success: boolean; error?: string } | null>(null)
@@ -15,7 +15,7 @@ export default function SendMessage() {
     if (!phone || !message) return
     setSending(true)
     setResult(null)
-    const r = await window.zap.sendMessage(phone, message)
+    const r = await window.zap.sendMessage(phone, message, accountId)
     setResult(r)
     setSending(false)
     if (r.success) { setPhone(''); setMessage('') }
@@ -23,7 +23,7 @@ export default function SendMessage() {
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Enviar Mensagem</h2>
+      {!embedded && <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 20 }}>Enviar Mensagem</h2>}
       <div style={{ maxWidth: 600 }}>
         <label style={{ display: 'block', fontSize: 13, color: colors.textMuted, marginBottom: 4 }}>Telefone (com DDD, só números)</label>
         <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} placeholder="5511999999999" maxLength={13}

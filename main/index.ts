@@ -1,12 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'path'
 import { getDb, all, one, run } from '../shared/database'
-import { connectWA, disconnectWA, unlinkWA, restoreWA, sendMessage, massSend, setMainWindow, interpolate, getConnectionStatus } from './whatsapp'
+import { connectWA, disconnectWA, unlinkWA, restoreWA, sendMessage, massSend, setMainWindow, interpolate, getAiAccessCandidates, getConnectionStatus } from './whatsapp'
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import { generateAi, getAiConfig, listAiModels, updateAiConfig } from './ai'
 import { deleteKnowledge, importKnowledge, listKnowledge } from './knowledge'
 import { setWarmupWindow, getWarmupPlans, listWarmupTasks, getWarmupLogs, getWarmupPairs, createWarmupTask, startWarmupTask, pauseWarmupTask, stopWarmupTask, resetWarmupTask, deleteWarmupTask } from './warmup'
+import { getAgentApiConfig, restartAgentApi, stopAgentApi, updateAgentApiConfig } from './agent-api'
 
 let mainWindow: BrowserWindow | null = null
 let schedulerInterval: ReturnType<typeof setInterval> | null = null
@@ -265,11 +266,14 @@ function registerIPC() {
     }
     return { success: true }
   })
+  ipcMain.handle('agent-api:config:get', () => getAgentApiConfig())
+  ipcMain.handle('agent-api:config:save', (_, input) => updateAgentApiConfig(input))
 
   ipcMain.handle('ai:config:get', (_, accountId = 'default') => getAiConfig(accountId))
   ipcMain.handle('ai:config:save', (_, accountId = 'default', input) => updateAiConfig(accountId, input))
   ipcMain.handle('ai:generate', (_, accountId = 'default', input) => generateAi({ ...input, accountId }))
   ipcMain.handle('ai:models', (_, accountId = 'default', provider) => listAiModels(provider, accountId))
+  ipcMain.handle('ai:access:candidates', (_, accountId = 'default') => getAiAccessCandidates(accountId))
   ipcMain.handle('ai:knowledge:list', (_, accountId = 'default') => listKnowledge(accountId))
   ipcMain.handle('ai:knowledge:import', async (_, accountId = 'default') => {
     const result = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Contexto IA', extensions: ['txt', 'md', 'csv', 'json'] }] })
@@ -367,11 +371,13 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   registerIPC()
   createWindow()
   startScheduler()
+  void restartAgentApi()
   void restoreWA()
 })
 
 app.on('window-all-closed', () => {
   if (schedulerInterval) clearInterval(schedulerInterval)
+  void stopAgentApi()
   disconnectWA()
   app.quit()
 })

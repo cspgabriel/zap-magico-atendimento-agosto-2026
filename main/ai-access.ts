@@ -32,3 +32,12 @@ export async function matchesAuthorizedAiIdentity(
   }
   return false
 }
+
+export function limitAiResponse(text: string, maxChars?: number) {
+  if (!maxChars || text.length <= maxChars) return text
+  const slice = text.slice(0, maxChars + 1)
+  const sentenceEnd = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('! '), slice.lastIndexOf('? '))
+  if (sentenceEnd >= Math.floor(maxChars * 0.55)) return slice.slice(0, sentenceEnd + 1).trim()
+  const lastSpace = slice.lastIndexOf(' ', maxChars - 1)
+  return `${slice.slice(0, lastSpace > 0 ? lastSpace : maxChars - 1).trim()}…`
+}

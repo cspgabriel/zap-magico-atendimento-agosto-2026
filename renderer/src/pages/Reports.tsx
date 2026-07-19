@@ -4,6 +4,7 @@ import { useTheme } from '../theme'
 export default function Reports() {
   const [log, setLog] = useState<any[]>([])
   const [stats, setStats] = useState({ total: 0, today: 0, todaySent: 0, todayFailed: 0 })
+  const [campaigns, setCampaigns] = useState<any[]>([])
   const [days, setDays] = useState(7)
   const { colors } = useTheme()
 
@@ -12,6 +13,7 @@ export default function Reports() {
   function load() {
     window.zap.getSendLog(days).then(setLog)
     window.zap.getStats().then(setStats)
+    window.zap.getCampaigns().then(setCampaigns)
   }
 
   function exportCSV() {
@@ -34,7 +36,7 @@ export default function Reports() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Relatórios</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Histórico de envios</h2>
           <p style={{ color: colors.textMuted, fontSize: 13, margin: '4px 0 0' }}>Acompanhe respostas enviadas, falhas e histórico operacional.</p>
         </div>
         <button onClick={exportCSV} disabled={log.length === 0} style={{
@@ -104,6 +106,10 @@ export default function Reports() {
             )}
           </tbody>
         </table>
+      </div>
+      <div style={{ marginTop: 18, background: colors.surface, borderRadius: 8, padding: 16 }}>
+        <h3 style={{ fontSize: 14, margin: '0 0 10px' }}>Histórico de campanhas moderadas</h3>
+        {campaigns.length === 0 ? <p style={{ color: colors.textDim, fontSize: 12 }}>Nenhuma campanha registrada.</p> : campaigns.map(campaign => <div key={campaign.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 14, alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${colors.border}` }}><div><strong style={{ display: 'block', fontSize: 12 }}>{campaign.name}</strong><small style={{ color: colors.textMuted }}>{campaign.created_at || campaign.scheduled_at || ''}</small></div><small style={{ color: campaign.status === 'completed' ? colors.success : campaign.status === 'paused' ? colors.warning : colors.textMuted }}>{campaign.status}</small><small>{campaign.sent_count || 0} enviadas</small><small style={{ color: campaign.fail_count ? colors.danger : colors.textMuted }}>{campaign.fail_count || 0} falhas</small></div>)}
       </div>
     </div>
   )

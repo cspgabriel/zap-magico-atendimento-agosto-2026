@@ -117,7 +117,7 @@ export default function Inbox({ accountId = 'default' }: { accountId?: string })
     const context = [...selected.messages].sort((a: any, b: any) => String(a.received_at).localeCompare(String(b.received_at))).slice(-10)
       .map((m: any) => `${m.from_me ? 'Atendente' : 'Cliente'}: ${m.message}`).join('\n')
     setSuggesting(true)
-    const result = await window.zap.aiGenerate({ text: context, action: 'reply' })
+    const result = await window.zap.aiGenerate(accountId, { text: context, action: 'reply' })
     setSuggesting(false)
     if (result.success) setReplyText(result.text); else alert(result.error)
   }

@@ -4,7 +4,7 @@ import { useTheme } from '../theme'
 import LimitRecommendations from '../components/LimitRecommendations'
 import AiMessageTools from '../components/AiMessageTools'
 
-export default function MassSend() {
+export default function MassSend({ embedded = false, composeOnly = false }: { embedded?: boolean; composeOnly?: boolean }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [contacts, setContacts] = useState<any[]>([])
   const [templates, setTemplates] = useState<any[]>([])
@@ -92,14 +92,14 @@ export default function MassSend() {
 
   return (
     <div>
-      <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Campanhas moderadas</h2>
+      {!embedded && <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>Campanhas moderadas</h2>}
       <div style={{ background: colors.warningBg, color: colors.warning, border: `1px solid ${colors.warning}`, borderRadius: 8, padding: 12, fontSize: 13, lineHeight: 1.45, marginBottom: 16 }}>
         Este módulo é secundário. Use apenas com contatos que deram permissão, volumes baixos, pausas longas e mensagem útil. O foco principal do sistema é atendimento ao cliente.
       </div>
       <LimitRecommendations compact />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {['new', 'scheduled', 'history'].map((t) => (
+        {(composeOnly ? ['new', 'scheduled'] : ['new', 'scheduled', 'history']).map((t) => (
           <button key={t} onClick={() => setTab(t as any)} style={{
             padding: '8px 20px', border: tab === t ? `2px solid ${colors.accent}` : `1px solid ${colors.border}`,
             borderRadius: 6, background: tab === t ? colors.surface2 : 'transparent', color: colors.text, cursor: 'pointer', fontSize: 13, fontWeight: tab === t ? 700 : 400,

@@ -4,9 +4,10 @@ import NodeCache from 'node-cache'
 import path from 'path'
 import { app, BrowserWindow, safeStorage } from 'electron'
 import fs from 'fs'
-import { generateAi, isAiSenderAuthorized, isAutoReplyEnabled } from './ai'
+import { generateAi, isAiGroupAuthorized, isAiSenderAuthorized, isAutoReplyEnabled } from './ai'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
+const groupCache = new NodeCache({ stdTTL: 300 })
 type AccountConnection = { sock: WASocket | null; connecting: Promise<void> | null; reconnectTimer: ReturnType<typeof setTimeout> | null; shouldReconnect: boolean; reconnectAttempts: number; phase: 'disconnected' | 'connecting' | 'connected' }
 const connections = new Map<string, AccountConnection>()
 let mainWindow: BrowserWindow | null = null
@@ -34,7 +35,7 @@ function connection(accountId: string) {
   return connections.get(accountId)!
 }
 
-function queuePrivateAutoReply(accountId: string, phone: string) {
+function queueAiAutoReply(accountId: string, phone: string) {
   const key = `${accountId}:${phone}`
   if (!isAutoReplyEnabled(accountId) || autoReplyBusy.has(key)) return
   const previous = autoReplyTimers.get(key)
@@ -92,13 +93,14 @@ async function openConnection(accountId: string): Promise<void> {
   const currentSock = baileys.makeWASocket({
     auth: state,
     syncFullHistory: false,
-    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.4.0'],
+    browser: ['Zap Magico WPP Web QR', 'Chrome', '1.4.1'],
     generateHighQualityLinkPreview: true,
     msgRetryCounterCache: msgCache,
     defaultQueryTimeoutMs: 30000,
     keepAliveIntervalMs: 25000,
     markOnlineOnConnect: true,
     patchMessageBeforeSending: (m) => m,
+    cachedGroupMetadata: async (jid) => groupCache.get(`${accountId}:${jid}`),
   })
   const account = connection(accountId)
   account.sock = currentSock
@@ -154,6 +156,7 @@ async function openConnection(accountId: string): Promise<void> {
       account.reconnectAttempts = 0
       notify('wa:status', { accountId, status: 'connected', phone })
       void updateAccountState(accountId, 'connected', phone)
+      void refreshAccountGroups(accountId, currentSock)
     }
   })
 
@@ -162,7 +165,22 @@ async function openConnection(accountId: string): Promise<void> {
       if (msg.key?.id) msgCache.set(msg.key.id, msg)
       const remoteJid = msg.key?.remoteJid || ''
       const alternateJid = msg.key?.remoteJidAlt || ''
-      if (remoteJid.endsWith('@g.us') || alternateJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || alternateJid === 'status@broadcast') continue
+      if (remoteJid === 'status@broadcast' || alternateJid === 'status@broadcast') continue
+      if (remoteJid.endsWith('@g.us')) {
+        if (!isAiGroupAuthorized(accountId, remoteJid)) continue
+        const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
+        if (!text) continue
+        const conversationId = `group:${remoteJid}`
+        const db = await getDb()
+        const cached = one(db, 'SELECT subject FROM whatsapp_groups WHERE account_id = ? AND jid = ?', [accountId, remoteJid]) as any
+        const groupName = cached?.subject || 'Grupo WhatsApp'
+        const storedText = !msg.key.fromMe && msg.pushName ? `${msg.pushName}: ${text}` : text
+        run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [`${accountId}:${msg.key.id || crypto.randomUUID()}`, accountId, conversationId, groupName, storedText, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, remoteJid])
+        notify('inbox:new', { accountId, phone: conversationId, contact_name: groupName, message: storedText, from_me: Boolean(msg.key.fromMe), is_group: true })
+        if (m.type === 'notify' && !msg.key.fromMe) queueAiAutoReply(accountId, conversationId)
+        continue
+      }
       const phoneJid = alternateJid.endsWith('@s.whatsapp.net') ? alternateJid : remoteJid
       if (!phoneJid.endsWith('@s.whatsapp.net') && !phoneJid.endsWith('@lid')) continue
       const phone = phoneJid.endsWith('@lid')
@@ -182,12 +200,35 @@ async function openConnection(accountId: string): Promise<void> {
             [phone, remoteJid, alternateJid],
             (lidJid) => currentSock.signalRepository.lidMapping.getPNForLID(lidJid),
           )
-          if (authorized) queuePrivateAutoReply(accountId, phone)
+          if (authorized) queueAiAutoReply(accountId, phone)
         }
       } catch (_) {}
     }
     if (connection(accountId).sock === currentSock) void syncSessionToSql(accountId, sDir)
   })
+}
+
+async function refreshAccountGroups(accountId: string, sock: WASocket) {
+  try {
+    const groups = await sock.groupFetchAllParticipating() as Record<string, any>
+    const db = await getDb()
+    for (const [jid, metadata] of Object.entries(groups || {})) {
+      groupCache.set(`${accountId}:${jid}`, metadata)
+      run(db, `INSERT INTO whatsapp_groups (account_id,jid,subject,participant_count,updated_at) VALUES (?,?,?,?,datetime('now'))
+        ON CONFLICT(account_id,jid) DO UPDATE SET subject=excluded.subject,participant_count=excluded.participant_count,updated_at=datetime('now')`,
+        [accountId, jid, String(metadata?.subject || 'Grupo WhatsApp'), Number(metadata?.participants?.length || 0)])
+    }
+  } catch {}
+}
+
+export async function getAiAccessCandidates(accountId = 'default') {
+  const state = connection(accountId)
+  if (state.phase === 'connected' && state.sock) await refreshAccountGroups(accountId, state.sock)
+  const db = await getDb()
+  const contacts = all(db, `SELECT phone AS id, MAX(CASE WHEN contact_name <> '' THEN contact_name ELSE phone END) AS name, MAX(received_at) AS last_message_at
+    FROM inbox WHERE account_id = ? AND phone NOT LIKE 'group:%' GROUP BY phone ORDER BY last_message_at DESC LIMIT 300`, [accountId])
+  const groups = all(db, 'SELECT jid AS id, subject AS name, participant_count, updated_at FROM whatsapp_groups WHERE account_id = ? ORDER BY subject', [accountId])
+  return { connected: state.phase === 'connected', contacts, groups }
 }
 
 async function clearInvalidSession(accountId: string, sessionDir: string) {
@@ -340,17 +381,20 @@ export async function sendMessage(phone: string, message: string, accountId = 'd
   const sock = connection(accountId).sock
   if (!sock) return { success: false, error: 'WhatsApp não conectado' }
 
-  const jid = phone.startsWith('lid:')
-    ? `${phone.slice(4).replace(/\D/g, '')}@lid`
-    : `${phone.replace(/\D/g, '')}@s.whatsapp.net`
+  const jid = phone.startsWith('group:')
+    ? phone.slice(6)
+    : phone.startsWith('lid:')
+      ? `${phone.slice(4).replace(/\D/g, '')}@lid`
+      : `${phone.replace(/\D/g, '')}@s.whatsapp.net`
+  if (!jid.endsWith('@g.us') && !jid.endsWith('@lid') && !jid.endsWith('@s.whatsapp.net')) return { success: false, error: 'Destino inválido' }
   try {
     const sent = await sock.sendMessage(jid, { text: message })
     const db = await getDb()
     run(db, 'INSERT INTO send_log (id, account_id, phone, message, status) VALUES (?, ?, ?, ?, ?)',
       [crypto.randomUUID(), accountId, phone, message, 'sent'])
     run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, 1, 1, ?)',
-      [`${accountId}:${sent?.key?.id || crypto.randomUUID()}`, accountId, phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), '', message, jid])
-    notify('inbox:new', { accountId, phone: phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), contact_name: '', message, from_me: true })
+      [`${accountId}:${sent?.key?.id || crypto.randomUUID()}`, accountId, phone.startsWith('group:') || phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), '', message, jid])
+    notify('inbox:new', { accountId, phone: phone.startsWith('group:') || phone.startsWith('lid:') ? phone : phone.replace(/\D/g, ''), contact_name: '', message, from_me: true })
     return { success: true }
   } catch (err: any) {
     const e = err?.message || 'Erro ao enviar'

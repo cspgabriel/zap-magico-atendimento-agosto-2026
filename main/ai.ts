@@ -2,10 +2,11 @@ import { app, safeStorage } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { readKnowledgeContext, listKnowledge } from './knowledge'
-import { matchesAuthorizedAiIdentity, normalizeAiIdentity, normalizeAiIdentityList } from './ai-access'
+import { limitAiResponse, matchesAuthorizedAiIdentity, normalizeAiIdentity, normalizeAiIdentityList } from './ai-access'
 
 export type AiProvider = 'auto' | 'openrouter' | 'gemini' | 'openai' | 'deepseek'
 export type AiAssistantMode = 'service' | 'personal'
+export type AiResponseLength = 'auto' | 'short' | 'medium' | 'long'
 
 type StoredConfig = {
   provider?: AiProvider
@@ -16,6 +17,9 @@ type StoredConfig = {
   assistantMode?: AiAssistantMode
   adminNumber?: string
   authorizedNumbers?: string[]
+  allowGroups?: boolean
+  authorizedGroups?: string[]
+  responseLength?: AiResponseLength
 }
 type ConfigStore = StoredConfig & { accounts?: Record<string, StoredConfig> }
 
@@ -102,7 +106,7 @@ export function providerKey(provider: Exclude<AiProvider, 'auto'>, config?: Stor
   return process.env[names[provider]] || hermes[names[provider]] || ''
 }
 
-async function compatibleRequest(provider: 'openrouter' | 'openai' | 'deepseek', key: string, model: string, prompt: string) {
+async function compatibleRequest(provider: 'openrouter' | 'openai' | 'deepseek', key: string, model: string, prompt: string, maxTokens: number) {
   const urls = {
     openrouter: 'https://openrouter.ai/api/v1/chat/completions',
     openai: 'https://api.openai.com/v1/chat/completions',
@@ -111,17 +115,17 @@ async function compatibleRequest(provider: 'openrouter' | 'openai' | 'deepseek',
   const response = await fetch(urls[provider], {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 700 }),
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: maxTokens }),
   })
   if (!response.ok) throw new Error(`${provider}: HTTP ${response.status}`)
   const data = await response.json() as any
   return String(data.choices?.[0]?.message?.content || '').trim()
 }
 
-async function geminiRequest(key: string, model: string, prompt: string) {
+async function geminiRequest(key: string, model: string, prompt: string, maxTokens: number) {
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 700 } }),
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens } }),
   })
   if (!response.ok) throw new Error(`gemini: HTTP ${response.status}`)
   const data = await response.json() as any
@@ -139,11 +143,14 @@ export function getAiConfig(accountId = 'default') {
     assistantMode: config.assistantMode || 'service',
     adminNumber: config.adminNumber || '',
     authorizedNumbers: config.authorizedNumbers || [],
+    allowGroups: config.allowGroups ?? false,
+    authorizedGroups: config.authorizedGroups || [],
+    responseLength: config.responseLength || 'auto',
     knowledge: listKnowledge(accountId),
   }
 }
 
-export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[] }) {
+export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength }) {
   const config = loadConfig(accountId)
   if (input.provider) config.provider = input.provider
   if (input.id) {
@@ -154,6 +161,12 @@ export function updateAiConfig(accountId: string, input: { provider?: AiProvider
   if (input.autoReply !== undefined) config.autoReply = input.autoReply
   if (input.adminNumber !== undefined) config.adminNumber = normalizeAiIdentity(input.adminNumber)
   if (input.authorizedNumbers !== undefined) config.authorizedNumbers = normalizeAiIdentityList(input.authorizedNumbers)
+  if (input.allowGroups !== undefined) config.allowGroups = Boolean(input.allowGroups)
+  if (input.authorizedGroups !== undefined) config.authorizedGroups = [...new Set(input.authorizedGroups.map(value => String(value || '').trim()).filter(value => value.endsWith('@g.us')))]
+  if (input.responseLength !== undefined) {
+    if (!['auto', 'short', 'medium', 'long'].includes(input.responseLength)) throw new Error('Tamanho de resposta inválido.')
+    config.responseLength = input.responseLength
+  }
   if (input.assistantMode !== undefined) {
     if (!['service', 'personal'].includes(input.assistantMode)) throw new Error('Modo do assistente inválido.')
     config.assistantMode = input.assistantMode
@@ -181,6 +194,11 @@ export async function isAiSenderAuthorized(
     identities,
     resolvePhoneForLid,
   )
+}
+
+export function isAiGroupAuthorized(accountId: string, groupJid: string) {
+  const config = loadConfig(accountId)
+  return Boolean(config.allowGroups && (config.authorizedGroups || []).includes(groupJid))
 }
 
 export async function listAiModels(provider: Exclude<AiProvider, 'auto'>, accountId = 'default') {
@@ -223,8 +241,16 @@ export async function generateAi(input: { text: string; action?: string; provide
     support: 'Reescreva em tom acolhedor, objetivo e profissional de atendimento ao cliente.',
     reply: 'Gere uma resposta de atendimento para a conversa abaixo. Seja humano, útil e objetivo. Não invente informações; quando faltar contexto, faça uma pergunta curta.',
   }
+  const length = config.responseLength || 'auto'
+  const lengthRules: Record<AiResponseLength, { instruction: string; maxTokens: number; maxChars?: number }> = {
+    auto: { instruction: 'Use o tamanho natural necessário para responder bem.', maxTokens: 700 },
+    short: { instruction: 'Responda de forma curta, com no máximo 350 caracteres.', maxTokens: 180, maxChars: 350 },
+    medium: { instruction: 'Responda com tamanho médio, com no máximo 700 caracteres.', maxTokens: 350, maxChars: 700 },
+    long: { instruction: 'Responda de forma detalhada, podendo usar até 1.400 caracteres.', maxTokens: 700, maxChars: 1400 },
+  }
+  const lengthRule = lengthRules[length]
   const knowledge = readKnowledgeContext(accountId)
-  const prompt = `${instructions[input.action || 'create'] || instructions.create}\nUse português do Brasil. Não invente preço, prazo, política ou característica. Se a base não trouxer a resposta, sinalize a dúvida ao atendente. Não explique o que fez. Entregue somente a mensagem final.\n\nInstruções da operação:\n${config.systemPrompt || 'Atenda com clareza, cordialidade e objetividade.'}\n\nBase local de conhecimento:\n${knowledge || '(nenhum arquivo cadastrado)'}\n\nConteúdo:\n${input.text}`
+  const prompt = `${instructions[input.action || 'create'] || instructions.create}\n${lengthRule.instruction}\nUse português do Brasil. Não invente preço, prazo, política ou característica. Se a base não trouxer a resposta, sinalize a dúvida ao atendente. Não explique o que fez. Entregue somente a mensagem final.\n\nInstruções da operação:\n${config.systemPrompt || 'Atenda com clareza, cordialidade e objetividade.'}\n\nBase local de conhecimento:\n${knowledge || '(nenhum arquivo cadastrado)'}\n\nConteúdo:\n${input.text}`
   const errors: string[] = []
   for (const provider of order) {
     const key = providerKey(provider, config)
@@ -232,9 +258,9 @@ export async function generateAi(input: { text: string; action?: string; provide
     try {
       const model = config.models?.[provider] || defaults[provider]
       const result = provider === 'gemini'
-        ? await geminiRequest(key, model, prompt)
-        : await compatibleRequest(provider, key, model, prompt)
-      if (result) return { success: true, text: result, provider, model }
+        ? await geminiRequest(key, model, prompt, lengthRule.maxTokens)
+        : await compatibleRequest(provider, key, model, prompt, lengthRule.maxTokens)
+      if (result) return { success: true, text: limitAiResponse(result, lengthRule.maxChars), provider, model }
     } catch (error: any) { errors.push(error.message) }
   }
   return { success: false, error: errors.join(' | ') || 'Nenhum provedor configurado.' }
