@@ -27,6 +27,10 @@ with sync_playwright() as p:
     accounts = json.load(urllib.request.urlopen(request))
     assert len(accounts) >= 1
 
+    request = urllib.request.Request(f"http://127.0.0.1:{api_port}/v1/ai/media-usage?accountId=default", headers={"Authorization": f"Bearer {token}"})
+    usage = json.load(urllib.request.urlopen(request))
+    assert "image" in usage and "voice" in usage
+
     payload = json.dumps({"accountId": "default", "to": "5521999999999", "message": "QA"}).encode()
     request = urllib.request.Request(f"http://127.0.0.1:{api_port}/v1/messages/send", data=payload, method="POST", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     send_result = json.load(urllib.request.urlopen(request))

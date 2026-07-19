@@ -46,6 +46,17 @@ function migrate(database: SqlJsDatabase) {
       PRIMARY KEY (account_id, group_jid, member_id)
     )`)
   database.run(`
+    CREATE TABLE IF NOT EXISTS ai_media_log (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      model TEXT DEFAULT '',
+      target TEXT DEFAULT '',
+      status TEXT NOT NULL,
+      error TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`)
+  database.run(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

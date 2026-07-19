@@ -1,4 +1,4 @@
-# Zap Mágico Atendimento · 1.4.1
+# Zap Mágico Atendimento · 1.4.2
 
 Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox, CRM leve e assistência de IA.
 
@@ -23,6 +23,10 @@ Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox,
 - IA opcional em grupos escolhidos: qualquer participante do grupo autorizado pode acionar a resposta; ADMIN e autorizados restringem somente chats privados.
 - No contexto de grupo, cada participante mantém identidade própria e a IA responde abertamente à conversa mais recente sem assumir que todos são o ADMIN.
 - Tamanho de saída automático, curto (350), médio (700) ou longo (1.400 caracteres).
+- Geração de imagens pelo OpenRouter e envio como foto real no WhatsApp (`/foto` ou `/imagem`).
+- Voz TTS configurável pelo OpenRouter, convertida para áudio PTT compatível com WhatsApp (`/audio` ou `/voz`).
+- Painel por conta para pesquisar modelos de imagem/voz, filtrar grátis/pago, escolher voz, velocidade, formato, resolução, qualidade e modo de resposta.
+- Limites diários separados para imagens e áudios, com uso registrado no SQL e permissão específica de mídia em grupos.
 - Central de envios unificada e página separada de histórico operacional.
 - API local autenticada para agentes, n8n e integrações externas.
 - Conexao WhatsApp Web por QR Code usando Baileys.
@@ -45,6 +49,10 @@ Ative em `Configurações > API local para agentes`. O serviço escuta apenas em
 - `GET /v1/ai/access-candidates?accountId=default`
 - `POST /v1/messages/send` com `accountId`, `to` e `message`
 - `POST /v1/ai/generate` com `accountId`, `text`, `action` e `provider` opcionais
+- `GET /v1/ai/media-models?kind=image|voice&accountId=default`
+- `GET /v1/ai/media-usage?accountId=default`
+- `POST /v1/ai/image` com `accountId`, `prompt` e `options` opcionais
+- `POST /v1/ai/speech` com `accountId`, `text` e `options` opcionais
 
 ## Build
 
@@ -59,7 +67,7 @@ npm run package
 O instalador atual fica em:
 
 ```text
-release/v1.4.1/Zap Mágico WPP Web QR Setup 1.4.1.exe
+release/v1.4.2/Zap Mágico WPP Web QR Setup 1.4.2.exe
 ```
 
 ## Dados locais
@@ -68,4 +76,4 @@ O app salva banco, mensagens, metadados do atendimento, automacoes, pipeline, co
 
 ## Escopo de seguranca
 
-Campanhas sao secundarias, moderadas e limitadas. O envio direto permanece sujeito a revisao do atendente. Grupos e status nao entram no Inbox privado. Eventos mantem conta, JID de origem e ID da mensagem para auditoria e deduplicacao.
+Campanhas sao secundarias, moderadas e limitadas. O envio direto permanece sujeito a revisao do atendente. Imagem e voz podem gerar custo no OpenRouter e ficam sujeitas aos limites configurados por conta. Grupos e status nao entram no Inbox privado. Eventos mantem conta, JID de origem e ID da mensagem para auditoria e deduplicacao.

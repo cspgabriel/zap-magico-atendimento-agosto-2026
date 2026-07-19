@@ -62,6 +62,10 @@ declare global {
       aiSaveConfig: (accountId: string, input: any) => Promise<any>
       aiGenerate: (accountId: string, input: any) => Promise<any>
       aiListModels: (accountId: string, provider: string) => Promise<any>
+      aiListMediaModels: (accountId: string, kind: 'image' | 'voice') => Promise<any>
+      aiGenerateImage: (accountId: string, prompt: string, overrides?: any) => Promise<any>
+      aiGenerateSpeech: (accountId: string, text: string, overrides?: any) => Promise<any>
+      aiMediaUsage: (accountId?: string) => Promise<any>
       aiAccessCandidates: (accountId?: string) => Promise<any>
       aiListKnowledge: (accountId?: string) => Promise<any[]>
       aiImportKnowledge: (accountId?: string) => Promise<any>

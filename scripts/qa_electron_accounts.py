@@ -32,7 +32,7 @@ with sync_playwright() as p:
     row = page.locator(".account-row").filter(has_text="Conta QA")
     row.get_by_title("Excluir conta").click()
     row.wait_for(state="detached", timeout=15000)
-    page.screenshot(path="release/qa-accounts-1.4.1.png", full_page=True)
+    page.screenshot(path="release/qa-accounts-1.4.2.png", full_page=True)
     assert not errors, errors
     print("QA_OK electron real IPC create QR disconnect reconnect delete")
     browser.close()

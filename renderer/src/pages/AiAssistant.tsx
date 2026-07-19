@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Bot, CheckCircle2, ExternalLink, FileText, HelpCircle, KeyRound, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRoundCheck, Users, X } from 'lucide-react'
+import { Bot, CheckCircle2, ExternalLink, FileText, HelpCircle, Image as ImageIcon, KeyRound, Mic2, RefreshCw, ShieldCheck, Sparkles, Trash2, UserRoundCheck, Users, X } from 'lucide-react'
 import { useTheme } from '../theme'
 
 const providers: Record<string, { label: string; keyUrl: string; docsUrl: string; help: string }> = {
@@ -15,6 +15,8 @@ export default function AiAssistant({ accountId }: { accountId: string }) {
   const [config, setConfig] = useState<any>({ provider: 'auto', providers: [] })
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState('')
+  const [testKind, setTestKind] = useState<'text' | 'image' | 'voice'>('text')
+  const [mediaPreview, setMediaPreview] = useState<{ kind: 'image' | 'voice'; url: string; detail: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [systemPrompt, setSystemPrompt] = useState('')
   const [knowledge, setKnowledge] = useState<any[]>([])
@@ -31,7 +33,7 @@ export default function AiAssistant({ accountId }: { accountId: string }) {
   const [accessSaveState, setAccessSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [accessError, setAccessError] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [activeSection, setActiveSection] = useState<'behavior' | 'context' | 'models' | 'test'>('behavior')
+  const [activeSection, setActiveSection] = useState<'behavior' | 'context' | 'models' | 'media' | 'test'>('behavior')
   const [showGuide, setShowGuide] = useState(() => !localStorage.getItem('zap-ai-guide-seen-v2'))
   useEffect(() => {
     let active = true
@@ -44,8 +46,19 @@ export default function AiAssistant({ accountId }: { accountId: string }) {
   async function saveProvider(id: string, key: string, model: string) { setConfig(await window.zap.aiSaveConfig(accountId, { id, key, model })) }
   async function generate() {
     if (!prompt.trim()) return
-    setLoading(true); const response = await window.zap.aiGenerate(accountId, { text: prompt, action: 'create', provider: config.provider }); setLoading(false)
-    if (response.success) setResult(response.text); else alert(response.error)
+    setLoading(true); setResult(''); setMediaPreview(null)
+    try {
+      if (testKind === 'image') {
+        const response = await window.zap.aiGenerateImage(accountId, prompt)
+        if (response.success) setMediaPreview({ kind: 'image', url: `data:${response.mediaType || 'image/png'};base64,${response.base64}`, detail: `${response.model}` }); else alert(response.error)
+      } else if (testKind === 'voice') {
+        const response = await window.zap.aiGenerateSpeech(accountId, prompt)
+        if (response.success) setMediaPreview({ kind: 'voice', url: `data:${response.mediaType || 'audio/mpeg'};base64,${response.base64}`, detail: `${response.model} · ${response.voice}` }); else alert(response.error)
+      } else {
+        const response = await window.zap.aiGenerate(accountId, { text: prompt, action: 'create', provider: config.provider })
+        if (response.success) setResult(response.text); else alert(response.error)
+      }
+    } finally { setLoading(false) }
   }
   async function saveAutoReply(value: boolean) {
     setAutoReply(value)
@@ -95,11 +108,12 @@ export default function AiAssistant({ accountId }: { accountId: string }) {
       <div><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><h2 style={{ fontSize: 21, margin: 0 }}>Assistente IA</h2><span style={{ padding: '3px 7px', borderRadius: 20, background: autoReply ? colors.successBg : colors.surface2, color: autoReply ? colors.success : colors.textMuted, border: `1px solid ${autoReply ? colors.border2 : colors.border}`, fontSize: 9, fontWeight: 800 }}>{autoReply ? 'AUTOMAÇÃO ATIVA' : 'AUTOMAÇÃO PAUSADA'}</span></div><p style={{ color: colors.textMuted, fontSize: 12, margin: '4px 0 0' }}>Conta isolada: <strong data-testid="ai-account-id" style={{ color: colors.text }}>{accountId}</strong> · {assistantMode === 'service' ? 'Atendimento para todos' : 'Assistente pessoal restrito'}</p></div>
       <button onClick={() => setShowGuide(true)} style={{ marginLeft: 'auto', minHeight: 44, display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${colors.border}`, borderRadius: 8, background: colors.surface, color: colors.textMuted, padding: '0 13px', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}><HelpCircle size={15} /> Guia de configuração</button>
     </header>
-    <nav aria-label="Seções do Assistente IA" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 7, marginBottom: 14 }}>
+    <nav aria-label="Seções do Assistente IA" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,minmax(0,1fr))', gap: 7, marginBottom: 14 }}>
       {([
         ['behavior', 'Comportamento', 'Quem recebe e automação', UserRoundCheck],
         ['context', 'Contexto', 'Prompt e arquivos', FileText],
         ['models', 'Modelos e chaves', 'OpenRouter e provedores', KeyRound],
+        ['media', 'Foto e voz', 'Imagem, TTS e limites', Mic2],
         ['test', 'Testar IA', 'Gere uma mensagem', Sparkles],
       ] as const).map(([id, label, helper, Icon]) => <button key={id} onClick={() => setActiveSection(id)} aria-current={activeSection === id ? 'page' : undefined} style={{ minHeight: 58, display: 'flex', alignItems: 'center', gap: 9, textAlign: 'left', padding: '9px 11px', borderRadius: 8, border: `1px solid ${activeSection === id ? colors.accent : colors.border}`, background: activeSection === id ? colors.successBg : colors.surface, color: colors.text, cursor: 'pointer', transition: 'background 180ms ease,border-color 180ms ease' }}><Icon size={17} color={activeSection === id ? colors.accent : colors.textMuted} /><span><strong style={{ display: 'block', fontSize: 11 }}>{label}</strong><small style={{ display: 'block', color: colors.textMuted, fontSize: 9, marginTop: 2 }}>{helper}</small></span></button>)}
     </nav>
@@ -137,15 +151,20 @@ export default function AiAssistant({ accountId }: { accountId: string }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}><button onClick={async () => { try { setSaveState('saving'); const saved = await window.zap.aiSaveConfig(accountId, { systemPrompt: systemPrompt.trim() }); setConfig(saved); setSystemPrompt(saved.systemPrompt || systemPrompt); setSaveState('saved'); setTimeout(() => setSaveState('idle'), 2200) } catch { setSaveState('error') } }} disabled={saveState === 'saving'} style={{ padding: '7px 10px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: saveState === 'saving' ? 'wait' : 'pointer', fontSize: 11 }}>{saveState === 'saving' ? 'Salvando...' : saveState === 'saved' ? 'Instruções salvas' : saveState === 'error' ? 'Tentar novamente' : 'Salvar instruções'}</button><button onClick={async () => { const result = await window.zap.aiImportKnowledge(accountId); if (result.success) setKnowledge(result.files || []) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', border: `1px solid ${colors.border2}`, background: colors.surface2, color: colors.text, cursor: 'pointer', fontSize: 11 }}><FileText size={13} /> Adicionar arquivos</button><small style={{ color: saveState === 'error' ? colors.danger : saveState === 'saved' ? colors.success : colors.textMuted }}>{saveState === 'error' ? 'Não foi possível salvar localmente.' : saveState === 'saved' ? 'Persistido nesta conta.' : `${knowledge.length} arquivo(s) de contexto desta conta`}</small></div>
       {knowledge.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 9 }}>{knowledge.map(file => <span key={file.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 7px', background: colors.bg, border: `1px solid ${colors.border}`, color: colors.textMuted, fontSize: 10 }}>{file.name}<button onClick={async () => setKnowledge(await window.zap.aiDeleteKnowledge(accountId, file.name))} title="Remover arquivo" style={{ display: 'grid', placeItems: 'center', border: 0, background: 'transparent', color: colors.danger, cursor: 'pointer', padding: 0 }}><Trash2 size={12} /></button></span>)}</div>}
     </section>}
+    {activeSection === 'media' && <MediaPanel accountId={accountId} config={config} onSaved={setConfig} colors={colors} />}
     {activeSection === 'test' && <section style={{ maxWidth: 820, background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 18, alignSelf: 'start' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 13 }}><Sparkles size={17} color={colors.accent} /><div><strong style={{ display: 'block', fontSize: 13 }}>Laboratório de mensagem</strong><small style={{ color: colors.textMuted }}>Teste o provedor e o modelo antes de ativar o atendimento.</small></div></div>
-        <label style={{ color: colors.textMuted, fontSize: 12 }}>Provedor principal</label>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }} aria-label="Tipo de geração">{([['text', 'Texto', Bot], ['image', 'Imagem', ImageIcon], ['voice', 'Voz', Mic2]] as const).map(([id, label, Icon]) => <button key={id} onClick={() => { setTestKind(id); setResult(''); setMediaPreview(null) }} style={{ minHeight: 42, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', borderRadius: 7, border: `1px solid ${testKind === id ? colors.accent : colors.border}`, background: testKind === id ? colors.successBg : colors.bg, color: colors.text, cursor: 'pointer', fontWeight: 700, fontSize: 11 }}><Icon size={15} /> {label}</button>)}</div>
+        {testKind === 'text' && <><label style={{ color: colors.textMuted, fontSize: 12 }}>Provedor principal</label>
         <select value={config.provider} onChange={async e => setConfig(await window.zap.aiSaveConfig(accountId, { provider: e.target.value }))} style={{ width: '100%', padding: 10, margin: '5px 0 12px', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}>
           <option value="auto">Automático com fallback</option>{config.providers.map((p: any) => <option value={p.id} key={p.id}>{providers[p.id].label} · {p.model}</option>)}
-        </select>
-        <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Ex.: avise o cliente que o orçamento está pronto e pergunte o melhor horário para conversar" rows={7} style={{ width: '100%', resize: 'vertical', padding: 12, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} />
-        <button onClick={generate} disabled={loading || !prompt.trim()} style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, padding: '10px 16px', border: 0, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: 'pointer' }}><Sparkles size={17} />{loading ? 'Gerando...' : 'Gerar mensagem'}</button>
+        </select></>}
+        <label style={{ display: 'block', color: colors.textMuted, fontSize: 11, marginBottom: 5 }}>{testKind === 'image' ? 'Descrição da imagem' : testKind === 'voice' ? 'Texto para narrar' : 'Pedido para a IA'}</label>
+        <textarea aria-label={testKind === 'image' ? 'Descrição da imagem' : testKind === 'voice' ? 'Texto para narrar' : 'Pedido para a IA'} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={testKind === 'image' ? 'Ex.: uma recepcionista sorrindo em uma clínica moderna, foto profissional' : testKind === 'voice' ? 'Ex.: Olá! Seu atendimento está confirmado para amanhã às dez horas.' : 'Ex.: avise o cliente que o orçamento está pronto e pergunte o melhor horário para conversar'} rows={6} style={{ width: '100%', resize: 'vertical', padding: 12, background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }} />
+        <button onClick={generate} disabled={loading || !prompt.trim()} style={{ minHeight: 44, display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, padding: '0 16px', border: 0, borderRadius: 7, background: colors.accent, color: '#07120a', fontWeight: 700, cursor: loading || !prompt.trim() ? 'not-allowed' : 'pointer', opacity: loading || !prompt.trim() ? .55 : 1 }}><Sparkles size={17} />{loading ? 'Gerando…' : `Gerar ${testKind === 'image' ? 'imagem' : testKind === 'voice' ? 'áudio' : 'mensagem'}`}</button>
         {result && <div style={{ marginTop: 14, padding: 14, whiteSpace: 'pre-wrap', background: colors.surface2, borderRadius: 7, fontSize: 13, lineHeight: 1.6 }}>{result}</div>}
+        {mediaPreview?.kind === 'image' && <figure style={{ margin: '14px 0 0', padding: 10, border: `1px solid ${colors.border}`, borderRadius: 8, background: colors.bg }}><img src={mediaPreview.url} alt="Prévia gerada pela IA" style={{ display: 'block', width: '100%', maxHeight: 480, objectFit: 'contain', borderRadius: 6 }} /><figcaption style={{ color: colors.textMuted, fontSize: 10, marginTop: 7 }}>{mediaPreview.detail}</figcaption></figure>}
+        {mediaPreview?.kind === 'voice' && <div style={{ marginTop: 14, padding: 12, border: `1px solid ${colors.border}`, borderRadius: 8, background: colors.bg }}><audio controls src={mediaPreview.url} style={{ width: '100%' }} /><small style={{ display: 'block', color: colors.textMuted, marginTop: 6 }}>{mediaPreview.detail}</small></div>}
     </section>}
     {activeSection === 'models' && <section style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><KeyRound size={17} color={colors.accent} /><div><strong style={{ display: 'block', fontSize: 13 }}>Modelos e credenciais</strong><small style={{ color: colors.textMuted }}>Escolha modelos, compare preços e salve cada chave localmente.</small></div></div>
@@ -154,6 +173,97 @@ export default function AiAssistant({ accountId }: { accountId: string }) {
       </section>
     </section>}
   </div>
+}
+
+function MediaPanel({ accountId, config, onSaved, colors }: any) {
+  const defaults = {
+    imageEnabled: false, imageModel: 'openai/gpt-image-1-mini', imageAspectRatio: '1:1', imageResolution: '1K', imageQuality: 'auto', imageDailyLimit: 5,
+    voiceEnabled: false, voiceReplyMode: 'request', voiceModel: 'google/gemini-3.1-flash-tts-preview', voiceName: 'Kore', voiceSpeed: 1, voiceDailyLimit: 20,
+    mediaGroupAccess: 'everyone',
+  }
+  const [draft, setDraft] = useState<any>({ ...defaults, ...config })
+  const [imageModels, setImageModels] = useState<any[]>([])
+  const [voiceModels, setVoiceModels] = useState<any[]>([])
+  const [imageSearch, setImageSearch] = useState('')
+  const [voiceSearch, setVoiceSearch] = useState('')
+  const [priceFilter, setPriceFilter] = useState<'all' | 'free' | 'paid'>('all')
+  const [loading, setLoading] = useState(true)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [error, setError] = useState('')
+  const [usage, setUsage] = useState<any>({ image: 0, voice: 0 })
+  useEffect(() => setDraft((current: any) => ({ ...current, ...defaults, ...config })), [accountId, config])
+  useEffect(() => {
+    let active = true
+    setLoading(true); setError('')
+    Promise.all([window.zap.aiListMediaModels(accountId, 'image'), window.zap.aiListMediaModels(accountId, 'voice'), window.zap.aiMediaUsage(accountId)])
+      .then(([images, voices, nextUsage]) => {
+        if (!active) return
+        setImageModels(images.success ? images.models : [])
+        setVoiceModels(voices.success ? voices.models : [])
+        setUsage(nextUsage || {})
+        const failures = [images, voices].filter(item => !item.success).map(item => item.error)
+        if (failures.length) setError(failures.join(' · '))
+      }).catch((reason: any) => { if (active) setError(reason?.message || 'Não foi possível carregar os modelos.') })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [accountId])
+  const selectedVoiceModel = voiceModels.find(model => model.id === draft.voiceModel)
+  const voices = selectedVoiceModel?.supportedVoices || []
+  const imageOptions = imageModels.filter(model => {
+    const matchesSearch = `${model.name} ${model.id}`.toLowerCase().includes(imageSearch.toLowerCase())
+    return matchesSearch && (priceFilter === 'all' || (priceFilter === 'free' ? model.isFree : !model.isFree))
+  })
+  const voiceOptions = voiceModels.filter(model => `${model.name} ${model.id}`.toLowerCase().includes(voiceSearch.toLowerCase()))
+  const field = (key: string, value: any) => setDraft((current: any) => ({ ...current, [key]: value }))
+  async function save() {
+    try {
+      setSaveState('saving'); setError('')
+      const saved = await window.zap.aiSaveConfig(accountId, {
+        imageEnabled: draft.imageEnabled, imageModel: draft.imageModel, imageAspectRatio: draft.imageAspectRatio, imageResolution: draft.imageResolution, imageQuality: draft.imageQuality, imageDailyLimit: Number(draft.imageDailyLimit),
+        voiceEnabled: draft.voiceEnabled, voiceReplyMode: draft.voiceReplyMode, voiceModel: draft.voiceModel, voiceName: draft.voiceName.trim(), voiceSpeed: Number(draft.voiceSpeed), voiceDailyLimit: Number(draft.voiceDailyLimit), mediaGroupAccess: draft.mediaGroupAccess,
+      })
+      setDraft({ ...defaults, ...saved }); onSaved(saved); setSaveState('saved'); setTimeout(() => setSaveState('idle'), 2200)
+    } catch (reason: any) { setSaveState('error'); setError(reason?.message || 'Não foi possível salvar.') }
+  }
+  const switchButton = (checked: boolean, label: string, toggle: () => void) => <button role="switch" aria-checked={checked} aria-label={label} onClick={toggle} style={{ width: 48, height: 28, border: 0, borderRadius: 20, padding: 4, background: checked ? colors.accent : colors.border, cursor: 'pointer', display: 'flex', justifyContent: checked ? 'flex-end' : 'flex-start' }}><span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff' }} /></button>
+  const selectStyle = { width: '100%', minHeight: 44, padding: '0 10px', background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 6 }
+  const inputStyle = { ...selectStyle, padding: '10px' }
+  return <section style={{ display: 'grid', gap: 12 }}>
+    <div style={{ padding: 14, borderRadius: 10, border: `1px solid ${colors.border2}`, background: `linear-gradient(120deg,${colors.successBg},${colors.surface})` }}>
+      <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}><Sparkles size={18} color={colors.accent} /><div><strong style={{ display: 'block', fontSize: 13 }}>Mídia com OpenRouter</strong><small style={{ color: colors.textMuted }}>Modelos, voz, comportamento e limites isolados nesta conta.</small></div><small style={{ marginLeft: 'auto', color: loading ? colors.textMuted : colors.success }}>{loading ? 'Carregando modelos…' : `${imageModels.length} imagem · ${voiceModels.length} voz`}</small></div>
+      {error && <div role="alert" style={{ marginTop: 9, color: colors.danger, fontSize: 11 }}>{error}</div>}
+    </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(360px,1fr))', gap: 12 }}>
+      <article style={{ padding: 15, border: `1px solid ${draft.imageEnabled ? colors.border2 : colors.border}`, borderRadius: 10, background: colors.surface }}>
+        <header style={{ display: 'flex', gap: 9, alignItems: 'center' }}><ImageIcon size={18} color={colors.accent} /><div><strong style={{ display: 'block', fontSize: 13 }}>Gerar e enviar fotos</strong><small style={{ color: colors.textMuted }}>Comandos: /foto e /imagem</small></div><span style={{ marginLeft: 'auto' }}>{switchButton(Boolean(draft.imageEnabled), 'Gerar imagens', () => field('imageEnabled', !draft.imageEnabled))}</span></header>
+        <label style={{ display: 'block', marginTop: 13, color: colors.textMuted, fontSize: 10 }}>Pesquisar modelo<input aria-label="Pesquisar modelo de imagem" value={imageSearch} onChange={e => setImageSearch(e.target.value)} placeholder="Nome ou ID do modelo" style={{ ...inputStyle, marginTop: 5 }} /></label>
+        <div style={{ display: 'flex', gap: 5, marginTop: 7 }}>{([['all', 'Todos'], ['free', 'Grátis'], ['paid', 'Pagos']] as const).map(([id, label]) => <button key={id} onClick={() => setPriceFilter(id)} style={{ minHeight: 36, padding: '0 10px', border: `1px solid ${priceFilter === id ? colors.accent : colors.border}`, background: priceFilter === id ? colors.successBg : colors.bg, color: colors.text, cursor: 'pointer', borderRadius: 6, fontSize: 10 }}>{label}</button>)}</div>
+        <label style={{ display: 'block', marginTop: 9, color: colors.textMuted, fontSize: 10 }}>Modelo de imagem<select aria-label="Modelo de imagem" value={draft.imageModel} onChange={e => field('imageModel', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}><option value={draft.imageModel}>{draft.imageModel}</option>{imageOptions.filter(m => m.id !== draft.imageModel).map(model => <option key={model.id} value={model.id}>[{model.isFree ? 'GRÁTIS' : 'PAGO'}] {model.name}</option>)}</select></label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 7, marginTop: 9 }}>
+          <label style={{ color: colors.textMuted, fontSize: 10 }}>Formato<select aria-label="Formato da imagem" value={draft.imageAspectRatio} onChange={e => field('imageAspectRatio', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}>{['1:1', '16:9', '9:16', '4:3', '3:4'].map(v => <option key={v}>{v}</option>)}</select></label>
+          <label style={{ color: colors.textMuted, fontSize: 10 }}>Resolução<select aria-label="Resolução da imagem" value={draft.imageResolution} onChange={e => field('imageResolution', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}>{['512', '1K', '2K', '4K'].map(v => <option key={v}>{v}</option>)}</select></label>
+          <label style={{ color: colors.textMuted, fontSize: 10 }}>Qualidade<select aria-label="Qualidade da imagem" value={draft.imageQuality} onChange={e => field('imageQuality', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}>{['auto', 'low', 'medium', 'high'].map(v => <option key={v}>{v}</option>)}</select></label>
+        </div>
+        <label style={{ display: 'block', marginTop: 9, color: colors.textMuted, fontSize: 10 }}>Limite diário<input aria-label="Limite diário de imagens" type="number" min={1} max={100} value={draft.imageDailyLimit} onChange={e => field('imageDailyLimit', e.target.value)} style={{ ...inputStyle, marginTop: 5 }} /></label>
+        <small style={{ display: 'block', marginTop: 6, color: colors.textMuted }}>Hoje: {usage.image || 0}/{draft.imageDailyLimit} gerações. O modelo pode ignorar opções incompatíveis.</small>
+      </article>
+      <article style={{ padding: 15, border: `1px solid ${draft.voiceEnabled ? colors.border2 : colors.border}`, borderRadius: 10, background: colors.surface }}>
+        <header style={{ display: 'flex', gap: 9, alignItems: 'center' }}><Mic2 size={18} color={colors.accent} /><div><strong style={{ display: 'block', fontSize: 13 }}>Gerar e enviar voz</strong><small style={{ color: colors.textMuted }}>Áudio PTT: /audio e /voz</small></div><span style={{ marginLeft: 'auto' }}>{switchButton(Boolean(draft.voiceEnabled), 'Gerar voz', () => field('voiceEnabled', !draft.voiceEnabled))}</span></header>
+        <label style={{ display: 'block', marginTop: 13, color: colors.textMuted, fontSize: 10 }}>Quando responder por voz<select aria-label="Quando responder por voz" value={draft.voiceReplyMode} onChange={e => field('voiceReplyMode', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}><option value="request">Somente quando pedirem áudio</option><option value="always">Sempre responder em áudio</option></select></label>
+        <label style={{ display: 'block', marginTop: 9, color: colors.textMuted, fontSize: 10 }}>Pesquisar modelo<input aria-label="Pesquisar modelo de voz" value={voiceSearch} onChange={e => setVoiceSearch(e.target.value)} placeholder="Nome ou ID do modelo" style={{ ...inputStyle, marginTop: 5 }} /></label>
+        <label style={{ display: 'block', marginTop: 9, color: colors.textMuted, fontSize: 10 }}>Modelo TTS<select aria-label="Modelo de voz" value={draft.voiceModel} onChange={e => field('voiceModel', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}><option value={draft.voiceModel}>{draft.voiceModel}</option>{voiceOptions.filter(m => m.id !== draft.voiceModel).map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</select></label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 7, marginTop: 9 }}>
+          <label style={{ color: colors.textMuted, fontSize: 10 }}>Voz sugerida<select aria-label="Voz sugerida" value={voices.includes(draft.voiceName) ? draft.voiceName : ''} onChange={e => e.target.value && field('voiceName', e.target.value)} style={{ ...selectStyle, marginTop: 5 }}><option value="">Escolher…</option>{voices.map((voice: string) => <option key={voice}>{voice}</option>)}</select></label>
+          <label style={{ color: colors.textMuted, fontSize: 10 }}>Nome da voz<input aria-label="Nome personalizado da voz" value={draft.voiceName} onChange={e => field('voiceName', e.target.value)} placeholder="Ex.: Kore" style={{ ...inputStyle, marginTop: 5 }} /></label>
+        </div>
+        <label style={{ display: 'block', marginTop: 9, color: colors.textMuted, fontSize: 10 }}>Velocidade: {Number(draft.voiceSpeed).toFixed(1)}x<input aria-label="Velocidade da voz" type="range" min="0.5" max="2" step="0.1" value={draft.voiceSpeed} onChange={e => field('voiceSpeed', e.target.value)} style={{ width: '100%', minHeight: 36, accentColor: colors.accent }} /></label>
+        <label style={{ display: 'block', marginTop: 4, color: colors.textMuted, fontSize: 10 }}>Limite diário<input aria-label="Limite diário de áudios" type="number" min={1} max={200} value={draft.voiceDailyLimit} onChange={e => field('voiceDailyLimit', e.target.value)} style={{ ...inputStyle, marginTop: 5 }} /></label>
+        <small style={{ display: 'block', marginTop: 6, color: colors.textMuted }}>Hoje: {usage.voice || 0}/{draft.voiceDailyLimit} gerações.</small>
+      </article>
+    </div>
+    <div style={{ padding: 14, borderRadius: 10, border: `1px solid ${colors.border}`, background: colors.surface }}><div style={{ display: 'flex', alignItems: 'center', gap: 9 }}><Users size={17} color={colors.accent} /><div><strong style={{ display: 'block', fontSize: 12 }}>Imagem e voz em grupos</strong><small style={{ color: colors.textMuted }}>A IA continua respondendo todos no grupo; escolha quem pode consumir geração multimídia.</small></div><select aria-label="Permissão de mídia em grupos" value={draft.mediaGroupAccess} onChange={e => field('mediaGroupAccess', e.target.value)} style={{ ...selectStyle, width: 250, marginLeft: 'auto' }}><option value="everyone">Todos os participantes</option><option value="authorized">Somente ADMIN/autorizados</option></select></div></div>
+    <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}><button onClick={() => void save()} disabled={saveState === 'saving'} style={{ minHeight: 44, padding: '0 16px', border: 0, borderRadius: 7, background: colors.accent, color: '#07120a', fontWeight: 800, cursor: saveState === 'saving' ? 'wait' : 'pointer' }}>{saveState === 'saving' ? 'Salvando…' : saveState === 'saved' ? 'Configuração salva' : 'Salvar foto e voz'}</button><small style={{ color: saveState === 'error' ? colors.danger : saveState === 'saved' ? colors.success : colors.textMuted }}>Cada geração respeita o limite diário e usa a chave OpenRouter desta conta.</small></div>
+  </section>
 }
 
 function ApiGuideModal({ colors, close }: { colors: any; close: () => void }) {

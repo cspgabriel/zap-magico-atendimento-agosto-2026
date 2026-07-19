@@ -1,6 +1,6 @@
 {
   "name": "zap-magico-wpp-web-qr",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Zap Mágico WPP Web QR - Central de atendimento WhatsApp via QR",
   "main": "dist/main/index.js",
   "scripts": {
@@ -12,12 +12,13 @@
   "dependencies": {
     "baileys": "^7.0.0-rc13",
     "dayjs": "^1.11.13",
+    "ffmpeg-static": "^5.2.0",
     "lucide-react": "^0.468.0",
     "node-cache": "^5.1.2",
     "pino": "^9.0.0",
     "qrcode": "^1.5.4",
     "sql.js": "^1.11.0",
-    "uuid": "^10.0.0"
+    "uuid": "^11.1.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
@@ -54,6 +55,9 @@
     "files": [
       "dist/**/*",
       "resources/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*"
     ]
   }
 }

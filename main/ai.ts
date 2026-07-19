@@ -7,6 +7,8 @@ import { limitAiResponse, matchesAuthorizedAiIdentity, normalizeAiIdentity, norm
 export type AiProvider = 'auto' | 'openrouter' | 'gemini' | 'openai' | 'deepseek'
 export type AiAssistantMode = 'service' | 'personal'
 export type AiResponseLength = 'auto' | 'short' | 'medium' | 'long'
+export type AiVoiceReplyMode = 'request' | 'always'
+export type AiGroupMediaAccess = 'everyone' | 'authorized'
 
 type StoredConfig = {
   provider?: AiProvider
@@ -20,6 +22,19 @@ type StoredConfig = {
   allowGroups?: boolean
   authorizedGroups?: string[]
   responseLength?: AiResponseLength
+  imageEnabled?: boolean
+  imageModel?: string
+  imageAspectRatio?: string
+  imageResolution?: string
+  imageQuality?: 'auto' | 'low' | 'medium' | 'high'
+  imageDailyLimit?: number
+  voiceEnabled?: boolean
+  voiceReplyMode?: AiVoiceReplyMode
+  voiceModel?: string
+  voiceName?: string
+  voiceSpeed?: number
+  voiceDailyLimit?: number
+  mediaGroupAccess?: AiGroupMediaAccess
 }
 type ConfigStore = StoredConfig & { accounts?: Record<string, StoredConfig> }
 
@@ -106,6 +121,29 @@ export function providerKey(provider: Exclude<AiProvider, 'auto'>, config?: Stor
   return process.env[names[provider]] || hermes[names[provider]] || ''
 }
 
+export function providerKeyForAccount(provider: Exclude<AiProvider, 'auto'>, accountId = 'default') {
+  return providerKey(provider, loadConfig(accountId))
+}
+
+export function getAiMediaConfig(accountId = 'default') {
+  const config = loadConfig(accountId)
+  return {
+    imageEnabled: config.imageEnabled ?? false,
+    imageModel: config.imageModel || 'openai/gpt-image-1-mini',
+    imageAspectRatio: config.imageAspectRatio || '1:1',
+    imageResolution: config.imageResolution || '1K',
+    imageQuality: config.imageQuality || 'auto',
+    imageDailyLimit: config.imageDailyLimit ?? 5,
+    voiceEnabled: config.voiceEnabled ?? false,
+    voiceReplyMode: config.voiceReplyMode || 'request',
+    voiceModel: config.voiceModel || 'google/gemini-3.1-flash-tts-preview',
+    voiceName: config.voiceName || 'Kore',
+    voiceSpeed: config.voiceSpeed ?? 1,
+    voiceDailyLimit: config.voiceDailyLimit ?? 20,
+    mediaGroupAccess: config.mediaGroupAccess || 'everyone',
+  }
+}
+
 async function compatibleRequest(provider: 'openrouter' | 'openai' | 'deepseek', key: string, model: string, prompt: string, maxTokens: number) {
   const urls = {
     openrouter: 'https://openrouter.ai/api/v1/chat/completions',
@@ -147,10 +185,11 @@ export function getAiConfig(accountId = 'default') {
     authorizedGroups: config.authorizedGroups || [],
     responseLength: config.responseLength || 'auto',
     knowledge: listKnowledge(accountId),
+    ...getAiMediaConfig(accountId),
   }
 }
 
-export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength }) {
+export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength; imageEnabled?: boolean; imageModel?: string; imageAspectRatio?: string; imageResolution?: string; imageQuality?: 'auto' | 'low' | 'medium' | 'high'; imageDailyLimit?: number; voiceEnabled?: boolean; voiceReplyMode?: AiVoiceReplyMode; voiceModel?: string; voiceName?: string; voiceSpeed?: number; voiceDailyLimit?: number; mediaGroupAccess?: AiGroupMediaAccess }) {
   const config = loadConfig(accountId)
   if (input.provider) config.provider = input.provider
   if (input.id) {
@@ -166,6 +205,28 @@ export function updateAiConfig(accountId: string, input: { provider?: AiProvider
   if (input.responseLength !== undefined) {
     if (!['auto', 'short', 'medium', 'long'].includes(input.responseLength)) throw new Error('Tamanho de resposta inválido.')
     config.responseLength = input.responseLength
+  }
+  if (input.imageEnabled !== undefined) config.imageEnabled = Boolean(input.imageEnabled)
+  if (input.imageModel !== undefined) config.imageModel = String(input.imageModel).trim()
+  if (input.imageAspectRatio !== undefined) config.imageAspectRatio = String(input.imageAspectRatio).trim()
+  if (input.imageResolution !== undefined) config.imageResolution = String(input.imageResolution).trim()
+  if (input.imageQuality !== undefined) {
+    if (!['auto', 'low', 'medium', 'high'].includes(input.imageQuality)) throw new Error('Qualidade de imagem inválida.')
+    config.imageQuality = input.imageQuality
+  }
+  if (input.imageDailyLimit !== undefined) config.imageDailyLimit = Math.min(500, Math.max(1, Math.floor(Number(input.imageDailyLimit) || 1)))
+  if (input.voiceEnabled !== undefined) config.voiceEnabled = Boolean(input.voiceEnabled)
+  if (input.voiceReplyMode !== undefined) {
+    if (!['request', 'always'].includes(input.voiceReplyMode)) throw new Error('Modo de resposta por voz inválido.')
+    config.voiceReplyMode = input.voiceReplyMode
+  }
+  if (input.voiceModel !== undefined) config.voiceModel = String(input.voiceModel).trim()
+  if (input.voiceName !== undefined) config.voiceName = String(input.voiceName).trim() || 'Kore'
+  if (input.voiceSpeed !== undefined) config.voiceSpeed = Math.min(2, Math.max(0.5, Number(input.voiceSpeed) || 1))
+  if (input.voiceDailyLimit !== undefined) config.voiceDailyLimit = Math.min(500, Math.max(1, Math.floor(Number(input.voiceDailyLimit) || 1)))
+  if (input.mediaGroupAccess !== undefined) {
+    if (!['everyone', 'authorized'].includes(input.mediaGroupAccess)) throw new Error('Permissão de mídia em grupos inválida.')
+    config.mediaGroupAccess = input.mediaGroupAccess
   }
   if (input.assistantMode !== undefined) {
     if (!['service', 'personal'].includes(input.assistantMode)) throw new Error('Modo do assistente inválido.')
@@ -189,6 +250,19 @@ export async function isAiSenderAuthorized(
 ) {
   const config = loadConfig(accountId)
   if ((config.assistantMode || 'service') === 'service') return true
+  return matchesAuthorizedAiIdentity(
+    [config.adminNumber || '', ...(config.authorizedNumbers || [])],
+    identities,
+    resolvePhoneForLid,
+  )
+}
+
+export async function isAiIdentityExplicitlyAuthorized(
+  accountId: string,
+  identities: string[],
+  resolvePhoneForLid?: (lidJid: string) => Promise<string | null>,
+) {
+  const config = loadConfig(accountId)
   return matchesAuthorizedAiIdentity(
     [config.adminNumber || '', ...(config.authorizedNumbers || [])],
     identities,

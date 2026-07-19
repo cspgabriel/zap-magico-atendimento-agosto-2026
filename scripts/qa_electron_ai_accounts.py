@@ -8,7 +8,7 @@ with sync_playwright() as p:
     page = browser.contexts[0].pages[0]
     page.wait_for_load_state("domcontentloaded")
     result = page.evaluate("""async () => {
-      await window.zap.aiSaveConfig('qa-account-a', {systemPrompt:'Prompt exclusivo A', assistantMode:'personal', adminNumber:'+55 (21) 99999-9999', allowGroups:true, authorizedGroups:['120363000000001@g.us'], responseLength:'medium'});
+      await window.zap.aiSaveConfig('qa-account-a', {systemPrompt:'Prompt exclusivo A', assistantMode:'personal', adminNumber:'+55 (21) 99999-9999', allowGroups:true, authorizedGroups:['120363000000001@g.us'], responseLength:'medium', imageEnabled:true, imageModel:'openai/gpt-image-1-mini', imageDailyLimit:3, voiceEnabled:true, voiceModel:'google/gemini-3.1-flash-tts-preview', voiceName:'Leda', voiceSpeed:1.2, mediaGroupAccess:'authorized'});
       await window.zap.aiSaveConfig('qa-account-b', {systemPrompt:'Prompt exclusivo B', assistantMode:'service'});
       const a = await window.zap.aiGetConfig('qa-account-a');
       const b = await window.zap.aiGetConfig('qa-account-b');
@@ -19,8 +19,15 @@ with sync_playwright() as p:
     assert result["a"]["adminNumber"] == "5521999999999"
     assert result["a"]["authorizedGroups"] == ["120363000000001@g.us"]
     assert result["a"]["responseLength"] == "medium"
+    assert result["a"]["imageEnabled"] is True
+    assert result["a"]["imageDailyLimit"] == 3
+    assert result["a"]["voiceEnabled"] is True
+    assert result["a"]["voiceName"] == "Leda"
+    assert result["a"]["mediaGroupAccess"] == "authorized"
     assert result["b"]["systemPrompt"] == "Prompt exclusivo B"
     assert result["b"]["assistantMode"] == "service"
     assert result["fresh"]["systemPrompt"] == ""
-    print("QA_OK packaged IPC ai config isolated by account")
+    assert result["fresh"]["imageEnabled"] is False
+    assert result["fresh"]["voiceEnabled"] is False
+    print("QA_OK packaged IPC ai and media config isolated by account")
     browser.close()

@@ -5,6 +5,7 @@ import http from 'http'
 import path from 'path'
 import { all, getDb } from '../shared/database'
 import { generateAi } from './ai'
+import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listOpenRouterMediaModels } from './ai-media'
 import { getAiAccessCandidates, getConnectionStatus, sendMessage } from './whatsapp'
 
 type AgentApiConfig = { enabled: boolean; port: number; token: string }
@@ -86,6 +87,13 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (req.method === 'GET' && url.pathname === '/v1/ai/access-candidates') {
       return json(res, 200, await getAiAccessCandidates(url.searchParams.get('accountId') || 'default'))
     }
+    if (req.method === 'GET' && url.pathname === '/v1/ai/media-models') {
+      const kind = url.searchParams.get('kind') === 'voice' ? 'voice' : 'image'
+      return json(res, 200, await listOpenRouterMediaModels(kind, url.searchParams.get('accountId') || 'default'))
+    }
+    if (req.method === 'GET' && url.pathname === '/v1/ai/media-usage') {
+      return json(res, 200, await getAiMediaUsage(url.searchParams.get('accountId') || 'default'))
+    }
     if (req.method === 'POST' && url.pathname === '/v1/messages/send') {
       const body = await readJson(req)
       if (!body.to || !body.message) return json(res, 400, { success: false, error: 'Informe to e message.' })
@@ -95,6 +103,16 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       const body = await readJson(req)
       if (!body.text) return json(res, 400, { success: false, error: 'Informe text.' })
       return json(res, 200, await generateAi({ text: String(body.text), action: body.action, provider: body.provider, accountId: String(body.accountId || 'default') }))
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/ai/image') {
+      const body = await readJson(req)
+      if (!body.prompt) return json(res, 400, { success: false, error: 'Informe prompt.' })
+      return json(res, 200, await generateOpenRouterImage(String(body.accountId || 'default'), String(body.prompt), body.options || {}))
+    }
+    if (req.method === 'POST' && url.pathname === '/v1/ai/speech') {
+      const body = await readJson(req)
+      if (!body.text) return json(res, 400, { success: false, error: 'Informe text.' })
+      return json(res, 200, await generateOpenRouterSpeech(String(body.accountId || 'default'), String(body.text), body.options || {}))
     }
     return json(res, 404, { success: false, error: 'Endpoint não encontrado.' })
   } catch (error: any) {
