@@ -166,17 +166,19 @@ async function openConnection(accountId: string): Promise<void> {
       const remoteJid = msg.key?.remoteJid || ''
       const alternateJid = msg.key?.remoteJidAlt || ''
       if (remoteJid === 'status@broadcast' || alternateJid === 'status@broadcast') continue
-      if (remoteJid.endsWith('@g.us')) {
-        if (!isAiGroupAuthorized(accountId, remoteJid)) continue
+      const groupJid = [remoteJid, alternateJid].find(jid => jid.endsWith('@g.us')) || ''
+      if (groupJid) {
+        // A autorização é do grupo inteiro. ADMIN e números autorizados se aplicam somente a chats privados.
+        if (!isAiGroupAuthorized(accountId, groupJid)) continue
         const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
         if (!text) continue
-        const conversationId = `group:${remoteJid}`
+        const conversationId = `group:${groupJid}`
         const db = await getDb()
-        const cached = one(db, 'SELECT subject FROM whatsapp_groups WHERE account_id = ? AND jid = ?', [accountId, remoteJid]) as any
+        const cached = one(db, 'SELECT subject FROM whatsapp_groups WHERE account_id = ? AND jid = ?', [accountId, groupJid]) as any
         const groupName = cached?.subject || 'Grupo WhatsApp'
         const storedText = !msg.key.fromMe && msg.pushName ? `${msg.pushName}: ${text}` : text
         run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [`${accountId}:${msg.key.id || crypto.randomUUID()}`, accountId, conversationId, groupName, storedText, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, remoteJid])
+          [`${accountId}:${msg.key.id || crypto.randomUUID()}`, accountId, conversationId, groupName, storedText, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, groupJid])
         notify('inbox:new', { accountId, phone: conversationId, contact_name: groupName, message: storedText, from_me: Boolean(msg.key.fromMe), is_group: true })
         if (m.type === 'notify' && !msg.key.fromMe) queueAiAutoReply(accountId, conversationId)
         continue

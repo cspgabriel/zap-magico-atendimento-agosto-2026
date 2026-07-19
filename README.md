@@ -18,7 +18,7 @@ Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox,
 - Prompt, modo, permissões, provedor e base de conhecimento isolados por conta WhatsApp.
 - Recuperação de sessão 401 sem loop: credencial inválida é limpa e o app solicita novo QR.
 - ADMIN e autorizados selecionáveis diretamente dos chats ativos da conta.
-- IA opcional em grupos escolhidos, com metadados em cache para reduzir consultas ao WhatsApp.
+- IA opcional em grupos escolhidos: qualquer participante do grupo autorizado pode acionar a resposta; ADMIN e autorizados restringem somente chats privados.
 - Tamanho de saída automático, curto (350), médio (700) ou longo (1.400 caracteres).
 - Central de envios unificada e página separada de histórico operacional.
 - API local autenticada para agentes, n8n e integrações externas.

@@ -198,7 +198,8 @@ export async function isAiSenderAuthorized(
 
 export function isAiGroupAuthorized(accountId: string, groupJid: string) {
   const config = loadConfig(accountId)
-  return Boolean(config.allowGroups && (config.authorizedGroups || []).includes(groupJid))
+  const normalizedGroup = String(groupJid || '').trim().toLowerCase()
+  return Boolean(config.allowGroups && normalizedGroup.endsWith('@g.us') && (config.authorizedGroups || []).some(jid => String(jid).trim().toLowerCase() === normalizedGroup))
 }
 
 export async function listAiModels(provider: Exclude<AiProvider, 'auto'>, accountId = 'default') {
