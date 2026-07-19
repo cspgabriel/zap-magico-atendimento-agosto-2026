@@ -67,6 +67,7 @@ declare global {
       aiListMediaModels: (accountId: string, kind: 'image' | 'voice' | 'transcription', provider?: string) => Promise<any>
       aiGenerateImage: (accountId: string, prompt: string, overrides?: any) => Promise<any>
       aiGenerateSpeech: (accountId: string, text: string, overrides?: any) => Promise<any>
+      aiGenerateWhatsAppSpeech: (accountId: string, text: string, overrides?: any) => Promise<any>
       aiTranscribeAudio: (accountId: string, base64: string, format?: string) => Promise<any>
       aiMediaUsage: (accountId?: string) => Promise<any>
       aiAccessCandidates: (accountId?: string) => Promise<any>

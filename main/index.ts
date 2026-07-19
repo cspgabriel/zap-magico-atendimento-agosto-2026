@@ -5,7 +5,7 @@ import { connectWA, disconnectWA, unlinkWA, restoreWA, sendMessage, massSend, se
 import { v4 as uuidv4 } from 'uuid'
 import fs from 'fs'
 import { generateAi, getAiConfig, listAiModels, updateAiConfig } from './ai'
-import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listMediaModels, transcribeAudio } from './ai-media'
+import { generateOpenRouterImage, generateOpenRouterSpeech, generateWhatsAppSpeech, getAiMediaUsage, listMediaModels, transcribeAudio } from './ai-media'
 import { deleteKnowledge, importKnowledge, listKnowledge } from './knowledge'
 import { setWarmupWindow, getWarmupPlans, listWarmupTasks, getWarmupLogs, getWarmupPairs, createWarmupTask, startWarmupTask, pauseWarmupTask, stopWarmupTask, resetWarmupTask, deleteWarmupTask } from './warmup'
 import { getAgentApiConfig, restartAgentApi, stopAgentApi, updateAgentApiConfig } from './agent-api'
@@ -277,6 +277,7 @@ function registerIPC() {
   ipcMain.handle('ai:media:models', (_, accountId = 'default', kind, provider) => listMediaModels(kind, accountId, provider))
   ipcMain.handle('ai:media:image', (_, accountId = 'default', prompt, overrides) => generateOpenRouterImage(accountId, String(prompt || ''), overrides || {}))
   ipcMain.handle('ai:media:speech', (_, accountId = 'default', text, overrides) => generateOpenRouterSpeech(accountId, String(text || ''), overrides || {}))
+  ipcMain.handle('ai:media:speech:whatsapp', (_, accountId = 'default', text, overrides) => generateWhatsAppSpeech(accountId, String(text || ''), overrides || {}))
   ipcMain.handle('ai:media:transcribe', (_, accountId = 'default', base64, format) => transcribeAudio(accountId, Buffer.from(String(base64 || ''), 'base64'), String(format || 'ogg')))
   ipcMain.handle('ai:media:usage', (_, accountId = 'default') => getAiMediaUsage(accountId))
   ipcMain.handle('ai:access:candidates', (_, accountId = 'default') => getAiAccessCandidates(accountId))

@@ -227,23 +227,65 @@ export async function generateOpenRouterSpeech(accountId: string, text: string, 
   if (!key) return { success: false, error: `Configure ou reutilize uma chave ${provider === 'openai' ? 'OpenAI' : 'OpenRouter'} nesta conta.` }
   try {
     await enforceDailyLimit(accountId, 'voice')
-    const response = await fetch(provider === 'openai' ? 'https://api.openai.com/v1/audio/speech' : 'https://openrouter.ai/api/v1/audio/speech', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: text.trim(), voice, response_format: 'mp3', speed: Number(overrides.speed || config.voiceSpeed) }),
-    })
-    if (!response.ok) {
-      const detail = String(await response.text()).slice(0, 500)
-      throw new Error(`HTTP ${response.status}${detail ? ` · ${detail}` : ''}`)
+    const configuredFormat = String(overrides.responseFormat || (config as any).voiceOutputFormat || 'auto')
+    let responseFormat = configuredFormat === 'auto'
+      ? (provider === 'openrouter' && /google\/gemini-.*tts/i.test(model) ? 'pcm' : 'mp3')
+      : configuredFormat
+    const request = (format: string) => fetch(provider === 'openai' ? 'https://api.openai.com/v1/audio/speech' : 'https://openrouter.ai/api/v1/audio/speech', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: text.trim(), voice, response_format: format, speed: Number(overrides.speed || config.voiceSpeed) }),
+      })
+    let response = await request(responseFormat)
+    // Alguns modelos anunciam response_format, mas aceitam somente PCM. O fallback
+    // mantém o fluxo WAAI (mensagem + arquivo) sem exigir tentativa manual do usuário.
+    if (!response.ok && provider === 'openrouter' && responseFormat !== 'pcm') {
+      const firstError = String(await response.text())
+      if (/response_format|only supports.+pcm|format.+pcm/i.test(firstError)) {
+        responseFormat = 'pcm'
+        response = await request(responseFormat)
+      } else throw new Error(formatMediaHttpError(response, firstError))
     }
-    const audio = Buffer.from(await response.arrayBuffer())
-    if (!audio.length) throw new Error('O modelo não retornou áudio.')
+    if (!response.ok) {
+      throw new Error(formatMediaHttpError(response, String(await response.text())))
+    }
+    const providerAudio = Buffer.from(await response.arrayBuffer())
+    if (!providerAudio.length) throw new Error('O modelo não retornou áudio.')
+    const sampleRate = responseFormat === 'pcm' ? 24_000 : undefined
+    const audio = responseFormat === 'pcm' ? pcm16ToWav(providerAudio, sampleRate!) : providerAudio
+    const generationId = response.headers.get('x-generation-id') || response.headers.get('x-request-id') || ''
     await logMedia(accountId, 'voice', model, 'generated')
-    return { success: true, base64: audio.toString('base64'), mediaType: response.headers.get('content-type') || 'audio/mpeg', model, voice }
+    return { success: true, base64: audio.toString('base64'), mediaType: responseFormat === 'pcm' ? 'audio/wav' : (response.headers.get('content-type') || 'audio/mpeg'), audioFormat: responseFormat === 'pcm' ? 'wav' : responseFormat, providerFormat: responseFormat, sampleRate, model, voice, generationId }
   } catch (error: any) {
     await logMedia(accountId, 'voice', model, 'failed', error?.message || String(error))
     return { success: false, error: `Voz: ${error?.message || 'falha na geração'}` }
   }
+}
+
+function formatMediaHttpError(response: Response, raw: string) {
+  let detail = raw
+  try { detail = JSON.parse(raw)?.error?.message || raw } catch {}
+  const requestId = response.headers.get('x-generation-id') || response.headers.get('x-request-id') || ''
+  return `HTTP ${response.status}${detail ? ` · ${String(detail).slice(0, 350)}` : ''}${requestId ? ` · ID ${requestId}` : ''}`
+}
+
+function pcm16ToWav(input: Buffer, sampleRate = 24_000, channels = 1) {
+  const header = Buffer.alloc(44)
+  const byteRate = sampleRate * channels * 2
+  header.write('RIFF', 0)
+  header.writeUInt32LE(36 + input.length, 4)
+  header.write('WAVE', 8)
+  header.write('fmt ', 12)
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(channels, 22)
+  header.writeUInt32LE(sampleRate, 24)
+  header.writeUInt32LE(byteRate, 28)
+  header.writeUInt16LE(channels * 2, 32)
+  header.writeUInt16LE(16, 34)
+  header.write('data', 36)
+  header.writeUInt32LE(input.length, 40)
+  return Buffer.concat([header, input])
 }
 
 export async function transcribeAudio(accountId: string, audio: Buffer, format = 'ogg') {
@@ -272,7 +314,7 @@ function packagedFfmpegPath() {
   return app.isPackaged ? raw.replace('app.asar', 'app.asar.unpacked') : raw
 }
 
-export function convertMp3ToWhatsAppOpus(input: Buffer) {
+export function convertAudioToWhatsAppOpus(input: Buffer) {
   return new Promise<Buffer>((resolve, reject) => {
     const process = spawn(packagedFfmpegPath(), ['-hide_banner', '-loglevel', 'error', '-i', 'pipe:0', '-vn', '-ac', '1', '-ar', '48000', '-c:a', 'libopus', '-b:a', '48k', '-f', 'ogg', 'pipe:1'], { windowsHide: true })
     const output: Buffer[] = []
@@ -283,6 +325,19 @@ export function convertMp3ToWhatsAppOpus(input: Buffer) {
     process.on('close', code => code === 0 && output.length ? resolve(Buffer.concat(output)) : reject(new Error(Buffer.concat(errors).toString('utf8') || `FFmpeg encerrou com código ${code}`)))
     process.stdin.end(input)
   })
+}
+
+export const convertMp3ToWhatsAppOpus = convertAudioToWhatsAppOpus
+
+export async function generateWhatsAppSpeech(accountId: string, text: string, overrides: Record<string, any> = {}) {
+  const speech = await generateOpenRouterSpeech(accountId, text, overrides)
+  if (!speech.success || !speech.base64) return speech
+  try {
+    const audio = await convertAudioToWhatsAppOpus(Buffer.from(speech.base64, 'base64'))
+    return { ...speech, base64: audio.toString('base64'), mediaType: 'audio/ogg; codecs=opus', audioFormat: 'ogg', whatsappReady: true }
+  } catch (error: any) {
+    return { success: false, error: `Conversão para WhatsApp: ${error?.message || error}`, model: speech.model, voice: speech.voice }
+  }
 }
 
 export function detectAiMediaIntent(text: string, accountId = 'default') {

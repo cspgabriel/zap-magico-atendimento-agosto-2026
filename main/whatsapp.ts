@@ -5,7 +5,7 @@ import path from 'path'
 import { app, BrowserWindow, safeStorage } from 'electron'
 import fs from 'fs'
 import { generateAi, getAiMediaConfig, isAiGroupAuthorized, isAiIdentityExplicitlyAuthorized, isAiSenderAuthorized, isAutoReplyEnabled } from './ai'
-import { convertMp3ToWhatsAppOpus, detectAiMediaIntent, generateOpenRouterImage, generateOpenRouterSpeech, transcribeAudio } from './ai-media'
+import { detectAiMediaIntent, generateOpenRouterImage, generateWhatsAppSpeech, transcribeAudio } from './ai-media'
 
 const msgCache = new NodeCache({ stdTTL: 60 })
 const groupCache = new NodeCache({ stdTTL: 300 })
@@ -29,6 +29,42 @@ function notify(channel: string, data: any) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, data)
   }
+}
+
+function unwrapMessageContent(message: any) {
+  let current = message
+  for (let index = 0; index < 6; index += 1) {
+    const nested = current?.ephemeralMessage?.message
+      || current?.viewOnceMessage?.message
+      || current?.viewOnceMessageV2?.message
+      || current?.viewOnceMessageV2Extension?.message
+      || current?.documentWithCaptionMessage?.message
+      || current?.editedMessage?.message
+    if (!nested) break
+    current = nested
+  }
+  return current || {}
+}
+
+async function readIncomingContent(accountId: string, msg: any, baileys: BaileysModule) {
+  const content = unwrapMessageContent(msg.message)
+  const text = String(content?.conversation || content?.extendedTextMessage?.text || '').trim()
+  if (text) return { text, aiReady: true }
+  const audioMessage = content?.audioMessage
+  if (!audioMessage || msg.key.fromMe) return { text: '', aiReady: false }
+  if (!getAiMediaConfig(accountId).transcriptionEnabled) return { text: '[Áudio recebido]', aiReady: false }
+  try {
+    const normalizedMessage = { ...msg, message: content }
+    const audio = await baileys.downloadMediaMessage(normalizedMessage, 'buffer', {}) as Buffer
+    const mimetype = String(audioMessage.mimetype || '')
+    const format = mimetype.includes('mpeg') ? 'mp3' : mimetype.includes('wav') ? 'wav' : mimetype.includes('webm') ? 'webm' : mimetype.includes('mp4') ? 'm4a' : 'ogg'
+    const transcript = await transcribeAudio(accountId, audio, format)
+    if (transcript.success && transcript.text) return { text: `[Áudio transcrito] ${transcript.text}`, aiReady: true }
+    notify('ai:auto-reply', { success: false, accountId, error: transcript.error || 'Não foi possível transcrever o áudio recebido.' })
+  } catch (error: any) {
+    notify('ai:auto-reply', { success: false, accountId, error: `Áudio recebido: ${error?.message || error}` })
+  }
+  return { text: '[Áudio recebido · transcrição falhou]', aiReady: false }
 }
 
 function connection(accountId: string) {
@@ -78,11 +114,10 @@ function queueAiAutoReply(accountId: string, phone: string, mediaAllowed = true)
         return
       }
       if (mediaIntent.kind === 'voice') {
-        const speech = await generateOpenRouterSpeech(accountId, result.text)
+        const speech = await generateWhatsAppSpeech(accountId, result.text)
         if (speech.success && speech.base64) {
           try {
-            const opus = await convertMp3ToWhatsAppOpus(Buffer.from(speech.base64, 'base64'))
-            const sent = await sendAudioMessage(phone, opus, result.text, accountId)
+            const sent = await sendAudioMessage(phone, Buffer.from(speech.base64, 'base64'), result.text, accountId)
             notify('ai:auto-reply', { success: sent.success, accountId, phone, kind: 'voice', error: sent.error || '' })
             return
           } catch (error: any) {
@@ -208,14 +243,8 @@ async function openConnection(accountId: string): Promise<void> {
       if (groupJid) {
         // A autorização é do grupo inteiro. ADMIN e números autorizados se aplicam somente a chats privados.
         if (!isAiGroupAuthorized(accountId, groupJid)) continue
-        let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
-        if (!text && msg.message?.audioMessage && !msg.key.fromMe && getAiMediaConfig(accountId).transcriptionEnabled) {
-          try {
-            const audio = await baileys.downloadMediaMessage(msg, 'buffer', {}) as Buffer
-            const transcript = await transcribeAudio(accountId, audio, msg.message.audioMessage.mimetype?.includes('mpeg') ? 'mp3' : 'ogg')
-            if (transcript.success && transcript.text) text = `[Áudio transcrito] ${transcript.text}`
-          } catch {}
-        }
+        const parsed = await readIncomingContent(accountId, msg, baileys)
+        const text = parsed.text
         if (!text) continue
         const conversationId = `group:${groupJid}`
         const db = await getDb()
@@ -229,7 +258,7 @@ async function openConnection(accountId: string): Promise<void> {
         run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid, sender_id, sender_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [`${accountId}:${msg.key.id || crypto.randomUUID()}`, accountId, conversationId, groupName, text, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, groupJid, senderId, senderName])
         notify('inbox:new', { accountId, phone: conversationId, contact_name: groupName, message: text, sender_id: senderId, sender_name: senderName, from_me: Boolean(msg.key.fromMe), is_group: true })
-        if (m.type === 'notify' && !msg.key.fromMe) {
+        if (m.type === 'notify' && !msg.key.fromMe && parsed.aiReady) {
           const mediaConfig = getAiMediaConfig(accountId)
           const mediaAllowed = mediaConfig.mediaGroupAccess === 'everyone' || await isAiIdentityExplicitlyAuthorized(
             accountId,
@@ -245,21 +274,15 @@ async function openConnection(accountId: string): Promise<void> {
       const phone = phoneJid.endsWith('@lid')
         ? `lid:${phoneJid.replace('@lid', '')}`
         : phoneJid.replace('@s.whatsapp.net', '')
-      let text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || ''
-      if (!text && msg.message?.audioMessage && !msg.key.fromMe && getAiMediaConfig(accountId).transcriptionEnabled) {
-        try {
-          const audio = await baileys.downloadMediaMessage(msg, 'buffer', {}) as Buffer
-          const transcript = await transcribeAudio(accountId, audio, msg.message.audioMessage.mimetype?.includes('mpeg') ? 'mp3' : 'ogg')
-          if (transcript.success && transcript.text) text = `[Áudio transcrito] ${transcript.text}`
-        } catch {}
-      }
+      const parsed = await readIncomingContent(accountId, msg, baileys)
+      const text = parsed.text
       if (!phone || !text) continue
       try {
         const db = await getDb()
         run(db, 'INSERT OR IGNORE INTO inbox (id, account_id, phone, contact_name, message, from_me, read, source_jid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
           [`${accountId}:${msg.key.id || crypto.randomUUID()}`, accountId, phone, msg.pushName || '', text, msg.key.fromMe ? 1 : 0, msg.key.fromMe ? 1 : 0, remoteJid])
         notify('inbox:new', { accountId, phone, contact_name: msg.pushName || '', message: text, from_me: Boolean(msg.key.fromMe) })
-        if (m.type === 'notify' && !msg.key.fromMe) {
+        if (m.type === 'notify' && !msg.key.fromMe && parsed.aiReady) {
           await runAutomationRules(accountId, phone, text)
           const authorized = await isAiSenderAuthorized(
             accountId,

@@ -5,7 +5,7 @@ import http from 'http'
 import path from 'path'
 import { all, getDb } from '../shared/database'
 import { generateAi } from './ai'
-import { generateOpenRouterImage, generateOpenRouterSpeech, getAiMediaUsage, listMediaModels, transcribeAudio } from './ai-media'
+import { generateOpenRouterImage, generateOpenRouterSpeech, generateWhatsAppSpeech, getAiMediaUsage, listMediaModels, transcribeAudio } from './ai-media'
 import { getAiAccessCandidates, getConnectionStatus, sendMessage } from './whatsapp'
 
 type AgentApiConfig = { enabled: boolean; port: number; token: string }
@@ -113,7 +113,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     if (req.method === 'POST' && url.pathname === '/v1/ai/speech') {
       const body = await readJson(req)
       if (!body.text) return json(res, 400, { success: false, error: 'Informe text.' })
-      return json(res, 200, await generateOpenRouterSpeech(String(body.accountId || 'default'), String(body.text), body.options || {}))
+      const generate = body.options?.whatsappReady ? generateWhatsAppSpeech : generateOpenRouterSpeech
+      return json(res, 200, await generate(String(body.accountId || 'default'), String(body.text), body.options || {}))
     }
     if (req.method === 'POST' && url.pathname === '/v1/ai/transcribe') {
       const body = await readJson(req)

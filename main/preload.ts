@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('zap', {
   aiListMediaModels: (accountId: string, kind: 'image' | 'voice' | 'transcription', provider?: string) => ipcRenderer.invoke('ai:media:models', accountId, kind, provider),
   aiGenerateImage: (accountId: string, prompt: string, overrides?: any) => ipcRenderer.invoke('ai:media:image', accountId, prompt, overrides),
   aiGenerateSpeech: (accountId: string, text: string, overrides?: any) => ipcRenderer.invoke('ai:media:speech', accountId, text, overrides),
+  aiGenerateWhatsAppSpeech: (accountId: string, text: string, overrides?: any) => ipcRenderer.invoke('ai:media:speech:whatsapp', accountId, text, overrides),
   aiTranscribeAudio: (accountId: string, base64: string, format?: string) => ipcRenderer.invoke('ai:media:transcribe', accountId, base64, format),
   aiMediaUsage: (accountId?: string) => ipcRenderer.invoke('ai:media:usage', accountId),
   aiAccessCandidates: (accountId?: string) => ipcRenderer.invoke('ai:access:candidates', accountId),

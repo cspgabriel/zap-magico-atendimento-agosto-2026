@@ -8,6 +8,7 @@ export type AiProvider = 'auto' | 'openrouter' | 'gemini' | 'openai' | 'deepseek
 export type AiAssistantMode = 'service' | 'personal'
 export type AiResponseLength = 'auto' | 'short' | 'medium' | 'long'
 export type AiVoiceReplyMode = 'request' | 'always'
+export type AiVoiceOutputFormat = 'auto' | 'mp3' | 'pcm'
 export type AiGroupMediaAccess = 'everyone' | 'authorized'
 export type AiMediaProvider = 'openrouter' | 'openai'
 export type AiMediaCredentialKind = 'image' | 'voice' | 'transcription'
@@ -39,6 +40,7 @@ type StoredConfig = {
   voiceModel?: string
   voiceName?: string
   voiceSpeed?: number
+  voiceOutputFormat?: AiVoiceOutputFormat
   voiceDailyLimit?: number
   mediaGroupAccess?: AiGroupMediaAccess
   voiceProvider?: AiMediaProvider
@@ -172,6 +174,7 @@ export function getAiMediaConfig(accountId = 'default') {
     voiceModel: config.voiceModel || 'google/gemini-3.1-flash-tts-preview',
     voiceName: config.voiceName || 'Kore',
     voiceSpeed: config.voiceSpeed ?? 1,
+    voiceOutputFormat: config.voiceOutputFormat || 'auto',
     voiceDailyLimit: config.voiceDailyLimit ?? 20,
     mediaGroupAccess: config.mediaGroupAccess || 'everyone',
     voiceProvider: config.voiceProvider || 'openrouter',
@@ -231,7 +234,7 @@ export function getAiConfig(accountId = 'default') {
   }
 }
 
-export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength; imageEnabled?: boolean; imageModel?: string; imageAspectRatio?: string; imageResolution?: string; imageQuality?: 'auto' | 'low' | 'medium' | 'high'; imageDailyLimit?: number; imageUseKnowledgeReferences?: boolean; imageInstructions?: string; imageProvider?: AiMediaProvider; imageUseTextKey?: boolean; voiceEnabled?: boolean; voiceReplyMode?: AiVoiceReplyMode; voiceModel?: string; voiceName?: string; voiceSpeed?: number; voiceDailyLimit?: number; voiceProvider?: AiMediaProvider; voiceUseTextKey?: boolean; transcriptionEnabled?: boolean; transcriptionProvider?: AiMediaProvider; transcriptionUseTextKey?: boolean; transcriptionModel?: string; transcriptionLanguage?: string; mediaKeyKind?: AiMediaCredentialKind; mediaKey?: string; mediaGroupAccess?: AiGroupMediaAccess }) {
+export function updateAiConfig(accountId: string, input: { provider?: AiProvider; id?: Exclude<AiProvider, 'auto'>; key?: string; model?: string; systemPrompt?: string; autoReply?: boolean; assistantMode?: AiAssistantMode; adminNumber?: string; authorizedNumbers?: string[]; allowGroups?: boolean; authorizedGroups?: string[]; responseLength?: AiResponseLength; imageEnabled?: boolean; imageModel?: string; imageAspectRatio?: string; imageResolution?: string; imageQuality?: 'auto' | 'low' | 'medium' | 'high'; imageDailyLimit?: number; imageUseKnowledgeReferences?: boolean; imageInstructions?: string; imageProvider?: AiMediaProvider; imageUseTextKey?: boolean; voiceEnabled?: boolean; voiceReplyMode?: AiVoiceReplyMode; voiceModel?: string; voiceName?: string; voiceSpeed?: number; voiceOutputFormat?: AiVoiceOutputFormat; voiceDailyLimit?: number; voiceProvider?: AiMediaProvider; voiceUseTextKey?: boolean; transcriptionEnabled?: boolean; transcriptionProvider?: AiMediaProvider; transcriptionUseTextKey?: boolean; transcriptionModel?: string; transcriptionLanguage?: string; mediaKeyKind?: AiMediaCredentialKind; mediaKey?: string; mediaGroupAccess?: AiGroupMediaAccess }) {
   const config = loadConfig(accountId)
   if (input.provider) config.provider = input.provider
   if (input.id) {
@@ -269,6 +272,10 @@ export function updateAiConfig(accountId: string, input: { provider?: AiProvider
   if (input.voiceModel !== undefined) config.voiceModel = String(input.voiceModel).trim()
   if (input.voiceName !== undefined) config.voiceName = String(input.voiceName).trim() || 'Kore'
   if (input.voiceSpeed !== undefined) config.voiceSpeed = Math.min(2, Math.max(0.5, Number(input.voiceSpeed) || 1))
+  if (input.voiceOutputFormat !== undefined) {
+    if (!['auto', 'mp3', 'pcm'].includes(input.voiceOutputFormat)) throw new Error('Formato de voz inválido.')
+    config.voiceOutputFormat = input.voiceOutputFormat
+  }
   if (input.voiceDailyLimit !== undefined) config.voiceDailyLimit = Math.min(500, Math.max(1, Math.floor(Number(input.voiceDailyLimit) || 1)))
   if (input.voiceProvider !== undefined) config.voiceProvider = input.voiceProvider
   if (input.voiceUseTextKey !== undefined) config.voiceUseTextKey = Boolean(input.voiceUseTextKey)

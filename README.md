@@ -1,4 +1,4 @@
-# Zap Mágico Atendimento · 1.4.2
+# Zap Mágico Atendimento · 1.4.3
 
 Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox, CRM leve e assistência de IA.
 
@@ -24,10 +24,10 @@ Aplicativo desktop local-first para atendimento WhatsApp via QR Code, com Inbox,
 - No contexto de grupo, cada participante mantém identidade própria e a IA responde abertamente à conversa mais recente sem assumir que todos são o ADMIN.
 - Tamanho de saída automático, curto (350), médio (700) ou longo (1.400 caracteres).
 - Imagem→imagem por OpenRouter ou OpenAI, usando fotos do teste e referências permanentes salvas nas instruções (`/foto` ou `/imagem`).
-- Voz TTS por OpenRouter ou OpenAI, convertida para áudio PTT compatível com WhatsApp (`/audio` ou `/voz`).
+- Voz TTS por OpenRouter ou OpenAI, com formato automático por modelo e conversão nativa para OGG/Opus PTT (`/audio` ou `/voz`).
 - Chaves independentes para foto, voz e transcrição, com opção de reutilizar a chave do provedor de texto.
 - Catálogos completos carregados dos provedores, pesquisa, ordenação por preço, filtro pt-BR e lista de vozes femininas/masculinas quando o modelo publica o gênero.
-- Transcrição opcional dos áudios recebidos para o assistente ouvir e responder ao conteúdo.
+- Transcrição opcional dos áudios recebidos, inclusive mensagens efêmeras/view-once, para o assistente ouvir e responder ao conteúdo.
 - Base de conhecimento com múltiplas fotos, PDF, DOCX, XLSX, PPTX, OpenDocument, RTF, EPUB, HTML, TXT, MD, CSV e JSON.
 - Limites diários separados para imagens e áudios, com uso registrado no SQL e permissão específica de mídia em grupos.
 - Central de envios unificada e página separada de histórico operacional.
@@ -58,7 +58,7 @@ Ative em `Instalar no agente IA`. O serviço escuta apenas em `127.0.0.1` e exig
 - `GET /v1/ai/media-models?kind=image|voice|transcription&accountId=default`
 - `GET /v1/ai/media-usage?accountId=default`
 - `POST /v1/ai/image` com `accountId`, `prompt` e `options` opcionais
-- `POST /v1/ai/speech` com `accountId`, `text` e `options` opcionais
+- `POST /v1/ai/speech` com `accountId`, `text` e `options` opcionais (`whatsappReady: true` retorna OGG/Opus)
 - `POST /v1/ai/transcribe` com `accountId`, áudio em `base64` e `format`
 
 ## Build
@@ -74,7 +74,7 @@ npm run package
 O instalador atual fica em:
 
 ```text
-release/v1.4.2/Zap Mágico WPP Web QR Setup 1.4.2.exe
+release/v1.4.3-audio-native/Zap Mágico WPP Web QR Setup 1.4.3.exe
 ```
 
 ## Dados locais
