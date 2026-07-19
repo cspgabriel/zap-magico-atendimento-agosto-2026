@@ -6,7 +6,7 @@ MOCK = r"""
   const listeners = {};
   let rules = [];
   let deals = [];
-  const blankAi = () => ({provider:'auto',providers:[],systemPrompt:'',autoReply:true,assistantMode:'service',adminNumber:'',authorizedNumbers:[],allowGroups:false,authorizedGroups:[],responseLength:'auto',knowledge:[]});
+  const blankAi = () => ({provider:'auto',providers:[{id:'openrouter',configured:false,model:'openai/gpt-4o-mini'},{id:'gemini',configured:false,model:'gemini-2.0-flash'},{id:'openai',configured:false,model:'gpt-4o-mini'},{id:'deepseek',configured:false,model:'deepseek-chat'}],systemPrompt:'',autoReply:true,assistantMode:'service',adminNumber:'',authorizedNumbers:[],allowGroups:false,authorizedGroups:[],responseLength:'auto',knowledge:[]});
   let aiConfigs = {};
   window.__qaAiConfigs = aiConfigs;
   let accounts = [{id:'default',name:'WhatsApp principal',phone:'5521999999999',status:'connected',connected:true},{id:'sales',name:'Comercial',phone:'',status:'disconnected',connected:false}];
@@ -23,7 +23,7 @@ MOCK = r"""
     getConversationMeta:async()=>[],getTemplates:async()=>[],markRead:ok,markAllRead:ok,saveConversationMeta:async(x)=>x,sendMessage:ok,
     getAutomations:async()=>rules,saveAutomation:async(r)=>{const row={...r,id:r.id||'r1',executions:r.executions||0,enabled:r.enabled===false?0:1};rules=rules.filter(x=>x.id!==row.id).concat(row);return{success:true,id:row.id}},deleteAutomation:async(id)=>{rules=rules.filter(x=>x.id!==id);return{success:true}},
     getDeals:async()=>deals,saveDeal:async(d)=>{const row={...d,id:d.id||'d1'};deals=deals.filter(x=>x.id!==row.id).concat(row);return{success:true,id:row.id}},deleteDeal:async(id)=>{deals=deals.filter(x=>x.id!==id);return{success:true}},
-    aiGetConfig:async(accountId='default')=>aiConfigs[accountId]||blankAi(),aiSaveConfig:async(accountId,input)=>{const current=aiConfigs[accountId]||blankAi();if(input.assistantMode==='personal'&&!String(input.adminNumber||current.adminNumber).replace(/\D/g,''))throw new Error('Informe o número ADMIN');aiConfigs[accountId]={...current,...input,adminNumber:String(input.adminNumber||'').replace(/\D/g,''),authorizedNumbers:input.authorizedNumbers||current.authorizedNumbers};window.__qaAiConfigs=aiConfigs;return aiConfigs[accountId]},aiAccessCandidates:async()=>({connected:true,contacts:[{id:'5521999999999',name:'Gabriel ADMIN'},{id:'5511988887777',name:'Atendimento SP'}],groups:[{id:'120363000000001@g.us',name:'Diretoria AgenciAR',participant_count:8},{id:'120363000000002@g.us',name:'Suporte',participant_count:4}]}),getSettings:async()=>({}),getContacts:async()=>[],getCampaigns:async()=>[{id:'c1',name:'Retorno clientes',status:'completed',sent_count:8,fail_count:1,created_at:'2026-07-18'}],getStats:async()=>({total:12,today:4,todaySent:3,todayFailed:1}),getSendLog:async()=>[],aiListKnowledge:async()=>[],warmupPlans:async()=>[],warmupList:async()=>[]
+    aiGetConfig:async(accountId='default')=>aiConfigs[accountId]||blankAi(),aiSaveConfig:async(accountId,input)=>{const current=aiConfigs[accountId]||blankAi();if(input.assistantMode==='personal'&&!String(input.adminNumber||current.adminNumber).replace(/\D/g,''))throw new Error('Informe o número ADMIN');aiConfigs[accountId]={...current,...input,adminNumber:String(input.adminNumber||'').replace(/\D/g,''),authorizedNumbers:input.authorizedNumbers||current.authorizedNumbers};window.__qaAiConfigs=aiConfigs;return aiConfigs[accountId]},aiAccessCandidates:async()=>({connected:true,contacts:[{id:'5521999999999',name:'Gabriel ADMIN'},{id:'5511988887777',name:'Atendimento SP'}],members:[{id:'5521977776666@s.whatsapp.net',name:'Maria do Financeiro',group_names:'Diretoria AgenciAR',is_admin:0},{id:'lid:987654321',name:'João Suporte',group_names:'Suporte',is_admin:1}],groups:[{id:'120363000000001@g.us',name:'Diretoria AgenciAR',participant_count:8},{id:'120363000000002@g.us',name:'Suporte',participant_count:4}]}),aiListModels:async()=>({success:true,models:[{id:'openrouter/free',name:'Free Models Router',isFree:true,promptPrice:0,completionPrice:0,contextLength:200000},{id:'google/gemini-2.5-flash:free',name:'Gemini 2.5 Flash Free',isFree:true,promptPrice:0,completionPrice:0,contextLength:1000000},{id:'anthropic/claude-sonnet-4',name:'Claude Sonnet 4',isFree:false,promptPrice:0.000003,completionPrice:0.000015,contextLength:200000}]}),getSettings:async()=>({}),getContacts:async()=>[],getCampaigns:async()=>[{id:'c1',name:'Retorno clientes',status:'completed',sent_count:8,fail_count:1,created_at:'2026-07-18'}],getStats:async()=>({total:12,today:4,todaySent:3,todayFailed:1}),getSendLog:async()=>[],aiListKnowledge:async()=>[],warmupPlans:async()=>[],warmupList:async()=>[]
   },{get:(t,p)=>p in t?t[p]:ok});
 })();
 """
@@ -63,25 +63,40 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Atendimento 1", exact=True).click()
     page.get_by_text("Cliente Demo").first.wait_for()
     page.get_by_role("button", name="Assistente IA", exact=True).click()
+    page.get_by_role("button", name="Modelos e chaves", exact=False).click()
+    page.get_by_label("Pesquisar modelos OpenRouter").wait_for()
+    page.get_by_role("button", name="Grátis", exact=True).click()
+    assert "2 de 3 modelos" in page.get_by_text("2 de 3 modelos").inner_text()
+    page.get_by_label("Pesquisar modelos OpenRouter").fill("gemini")
+    page.get_by_text("1 de 3 modelos").wait_for()
+    page.get_by_label("Pesquisar modelos OpenRouter").fill("")
+    page.get_by_role("button", name="Pagos", exact=True).click()
+    page.get_by_text("1 de 3 modelos").wait_for()
+    page.get_by_role("button", name="Todos", exact=True).click()
+    page.screenshot(path="release/qa-ai-models-1.4.1.png", full_page=True)
+    page.get_by_role("button", name="Comportamento", exact=False).click()
     page.get_by_role("button", name="Assistente pessoal IA").click()
     page.get_by_label("Escolher ADMIN dos chats ativos").select_option("5521999999999")
     page.get_by_label("Adicionar contato autorizado").select_option("5511988887777")
+    page.get_by_label("Pesquisar pessoas autorizadas").fill("Maria")
+    page.get_by_text("Maria do Financeiro", exact=True).click()
+    page.get_by_role("button", name="Adicionar selecionados (1)").click()
     page.get_by_label("Tamanho das respostas").select_option("medium")
     page.get_by_text("Permitir IA em grupos escolhidos").click()
-    page.get_by_text("Diretoria AgenciAR").click()
+    page.get_by_text("Diretoria AgenciAR", exact=True).click()
     page.get_by_role("button", name="Salvar modo e permissões").click()
     page.get_by_text("Configuração salva").wait_for()
     ai_config = page.evaluate("window.__qaAiConfigs.new")
     assert ai_config["assistantMode"] == "personal"
     assert ai_config["adminNumber"] == "5521999999999"
-    assert len(ai_config["authorizedNumbers"]) == 1
+    assert len(ai_config["authorizedNumbers"]) == 2
     assert ai_config["responseLength"] == "medium"
     assert ai_config["authorizedGroups"] == ["120363000000001@g.us"]
     page.locator(".account-switcher select").select_option("default")
-    page.get_by_text("Configuração isolada · default").wait_for()
+    page.get_by_test_id("ai-account-id").filter(has_text="default").wait_for()
     assert page.get_by_label("Número ADMIN *").count() == 0
     page.locator(".account-switcher select").select_option("new")
-    page.get_by_text("Configuração isolada · new").wait_for()
+    page.get_by_test_id("ai-account-id").filter(has_text="new").wait_for()
     assert page.get_by_label("Número ADMIN *").input_value() == "5521999999999"
     page.screenshot(path="release/qa-ai-access-1.4.1.png", full_page=True)
     page.get_by_role("button", name="Central de envios").click()

@@ -34,6 +34,18 @@ function migrate(database: SqlJsDatabase) {
       PRIMARY KEY (account_id, jid)
     )`)
   database.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_group_members (
+      account_id TEXT NOT NULL,
+      group_jid TEXT NOT NULL,
+      member_id TEXT NOT NULL,
+      phone_number TEXT DEFAULT '',
+      lid TEXT DEFAULT '',
+      name TEXT DEFAULT '',
+      is_admin INTEGER DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (account_id, group_jid, member_id)
+    )`)
+  database.run(`
     CREATE TABLE IF NOT EXISTS contacts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -103,6 +115,8 @@ function migrate(database: SqlJsDatabase) {
       from_me INTEGER DEFAULT 0,
       read INTEGER DEFAULT 0,
       source_jid TEXT DEFAULT '',
+      sender_id TEXT DEFAULT '',
+      sender_name TEXT DEFAULT '',
       received_at TEXT DEFAULT (datetime('now'))
     )`)
   database.run(`
@@ -197,6 +211,8 @@ function migrate(database: SqlJsDatabase) {
   const inboxColumns = database.exec('PRAGMA table_info(inbox)')[0]?.values.map((v: any) => v[1]) || []
   if (!inboxColumns.includes('source_jid')) database.run("ALTER TABLE inbox ADD COLUMN source_jid TEXT DEFAULT ''")
   if (!inboxColumns.includes('account_id')) database.run("ALTER TABLE inbox ADD COLUMN account_id TEXT DEFAULT 'default'")
+  if (!inboxColumns.includes('sender_id')) database.run("ALTER TABLE inbox ADD COLUMN sender_id TEXT DEFAULT ''")
+  if (!inboxColumns.includes('sender_name')) database.run("ALTER TABLE inbox ADD COLUMN sender_name TEXT DEFAULT ''")
   const sendLogColumns = database.exec('PRAGMA table_info(send_log)')[0]?.values.map((v: any) => v[1]) || []
   if (!sendLogColumns.includes('account_id')) database.run("ALTER TABLE send_log ADD COLUMN account_id TEXT DEFAULT 'default'")
   database.run("INSERT OR IGNORE INTO whatsapp_accounts (id, name, is_default) VALUES ('default', 'WhatsApp principal', 1)")
