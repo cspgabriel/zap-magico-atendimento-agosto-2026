@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { spawn } from 'child_process'
 import ffmpegStatic from 'ffmpeg-static'
 import { all, getDb, one, run } from '../shared/database'
-import { getAiConfig, getAiMediaConfig, mediaProviderKey, providerKeyForAccount } from './ai'
+import { getAiMediaConfig, mediaProviderKey, providerKeyForAccount } from './ai'
 import { getKnowledgeImageReferences } from './knowledge'
 
 export type AiMediaKind = 'image' | 'voice' | 'transcription'
@@ -158,9 +158,15 @@ export async function generateOpenRouterImage(accountId: string, prompt: string,
   try {
     await enforceDailyLimit(accountId, 'image')
     const manualReferences = Array.isArray(overrides.inputReferences) ? overrides.inputReferences.slice(0, 16).map((item: any) => typeof item === 'string' ? { type: 'image_url', image_url: { url: item } } : item) : []
-    const knowledgeReferences = config.imageUseKnowledgeReferences && overrides.includeKnowledge !== false ? getKnowledgeImageReferences(accountId, Math.max(0, 16 - manualReferences.length)) : []
+    // Uma referência enviada no laboratório substitui as imagens permanentes. Isso evita
+    // misturar, sem o usuário perceber, uma foto antiga da base com a foto que acabou de escolher.
+    const knowledgeReferences = !manualReferences.length && config.imageUseKnowledgeReferences && overrides.includeKnowledge !== false
+      ? getKnowledgeImageReferences(accountId, 1)
+      : []
     const inputReferences = [...manualReferences, ...knowledgeReferences].slice(0, 16).map(({ type, image_url }: any) => ({ type, image_url }))
-    const contextualPrompt = [config.imageInstructions, `Contexto permanente da operação: ${String(getAiConfig(accountId).systemPrompt || '')}`, prompt.trim()].filter(Boolean).join('\n\n')
+    // O prompt conversacional pode conter regras/personagens incompatíveis com geração visual.
+    // Somente as instruções visuais dedicadas pertencem à requisição de imagem.
+    const contextualPrompt = [config.imageInstructions, prompt.trim()].filter(Boolean).join('\n\n')
     let response: Response
     if (provider === 'openai') {
       if (!inputReferences.length) throw new Error('O modo imagem→imagem exige ao menos uma foto de referência no teste ou nos arquivos de contexto.')
@@ -188,8 +194,16 @@ export async function generateOpenRouterImage(accountId: string, prompt: string,
       }),
     })
     if (!response.ok) {
-      const detail = String(await response.text()).slice(0, 500)
-      throw new Error(`HTTP ${response.status}${detail ? ` · ${detail}` : ''}`)
+      const raw = String(await response.text())
+      let apiError: any = null
+      try { apiError = JSON.parse(raw)?.error } catch {}
+      const code = String(apiError?.code || '')
+      const requestId = response.headers.get('x-request-id') || response.headers.get('x-openai-request-id') || ''
+      if (code === 'moderation_blocked' || code === 'content_policy_violation') {
+        throw new Error(`O modelo bloqueou a foto ou as instruções visuais pela moderação. Teste outra referência ou outro modelo imagem→imagem.${requestId ? ` ID: ${requestId}` : ''}`)
+      }
+      const detail = String(apiError?.message || raw).slice(0, 350)
+      throw new Error(`HTTP ${response.status}${detail ? ` · ${detail}` : ''}${requestId ? ` · ID ${requestId}` : ''}`)
     }
     const payload = await response.json() as any
     const image = payload.data?.[0]
